@@ -1,0 +1,22 @@
+appId: com.git-ai-commit-message.GitAiCommitMessage
+productName: GitAiCommitMessage
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+win:
+  target:
+    - nsis
+  artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+linux:
+  target:
+    - AppImage

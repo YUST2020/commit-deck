@@ -1,0 +1,48 @@
+{
+  "name": "git-ai-commit-message",
+  "version": "0.1.0",
+  "description": "✨ 基于 AI 驱动 Git 提交助手。本地查看 Diff、一键生成符合规范的 Commit Message，让每一次提交都专业且高效。",
+  "author": "",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "start": "electron-vite preview",
+    "lint": "eslint . --max-warnings=0",
+    "lint:fix": "eslint . --fix",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
+    "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json --composite false",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "build:win": "npm run build && electron-builder --win",
+    "build:mac": "npm run build && electron-builder --mac",
+    "build:linux": "npm run build && electron-builder --linux"
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0",
+    "lucide-vue-next": "^1.0.0",
+    "naive-ui": "^2.38.2",
+    "pinia": "^2.2.6",
+    "simple-git": "^3.27.0",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.1",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "eslint": "^9.18.0",
+    "eslint-import-resolver-typescript": "^3.7.0",
+    "eslint-plugin-import": "^2.31.0",
+    "eslint-plugin-vue": "^10.9.2",
+    "globals": "^15.14.0",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.20.0",
+    "vfonts": "^0.0.3",
+    "vite": "^5.4.11",
+    "vue-eslint-parser": "^10.3.0",
+    "vue-tsc": "^2.1.10"
+  }
+}

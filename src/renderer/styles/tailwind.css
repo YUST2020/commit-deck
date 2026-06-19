@@ -1,0 +1,53 @@
+/**
+ * Tailwind CSS v4 入口 —— 与设计 Token 体系对齐
+ * --------------------------------------------------
+ * 设计原则：Tailwind 只做"原子工具类"层，所有颜色统一引用 tokens.css 的语义变量，
+ * 不引入新的色板。这样明暗主题切换（由 [data-theme] 驱动）依旧由 tokens.css 单点控制，
+ * Tailwind 写出的 bg-panel / text-primary 等会自动跟随主题。
+ *
+ * 使用方式：业务里写 class="bg-panel text-primary border border-default rounded-md"
+ *   - 颜色 → 走语义 utility（见下方 @theme inline 映射），禁止用 Tailwind 默认色板（bg-white/bg-gray-500 等）
+ *   - 间距/圆角/字号 → 用 Tailwind 原生刻度（p-4 / rounded-md / text-sm），它们与 token 的 4px 基准网格一致
+ *   - 复杂动效/状态机/Naive 组件 → 仍走 tokens + scoped CSS，不要硬塞 utility
+ */
+@import 'tailwindcss';
+
+/* 把 tokens.css 的语义 CSS 变量映射为 Tailwind 颜色 token。
+   `inline` 关键字：Tailwind 生成 utility 时直接内联 var() 引用，
+   不会在 :root 重新声明，从而跟随 [data-theme] 切换 —— 主题仍是 SSOT。 */
+@theme inline {
+  /* 背景 */
+  --color-app: var(--bg-app);
+  --color-panel: var(--bg-panel);
+  --color-elevated: var(--bg-elevated);
+  --color-selected: var(--bg-selected);
+  --color-hover: var(--bg-hover);
+
+  /* 文字 */
+  --color-primary: var(--text-primary);
+  --color-secondary: var(--text-secondary);
+  --color-tertiary: var(--text-tertiary);
+  --color-on-brand: var(--text-on-brand);
+
+  /* 边框 */
+  --color-default: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  /* 品牌 */
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-active: var(--brand-active);
+
+  /* 功能色 */
+  --color-success: var(--intent-success);
+  --color-warning: var(--intent-warning);
+  --color-error: var(--intent-error);
+  --color-info: var(--intent-info);
+
+  /* git 状态色 */
+  --color-git-added: var(--git-added);
+  --color-git-modified: var(--git-modified);
+  --color-git-deleted: var(--git-deleted);
+  --color-git-renamed: var(--git-renamed);
+  --color-git-untracked: var(--git-untracked);
+}

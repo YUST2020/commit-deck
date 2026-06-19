@@ -1,0 +1,262 @@
+/**
+ * 设计 Token —— CSS 变量层
+ * --------------------------------------------------
+ * 由 tokens.ts 派生而来。本文件只做"机械映射"，语义请在 tokens.ts 修改。
+ *
+ * 业务 CSS 使用方式：color: var(--text-primary);
+ * 不要在本文件之外再定义新的颜色/尺寸变量。
+ */
+
+/* ---------- Primitive：与主题无关的原子值（固定常量） ---------- */
+:root {
+  /* git 状态色 */
+  --git-added: #18a058;
+  --git-modified: #f0a020;
+  --git-deleted: #d03050;
+  --git-renamed: #2080f0;
+  --git-untracked: #8b95a6;
+
+  /* 功能色（与 Naive 对齐） */
+  --intent-success: #18a058;
+  --intent-warning: #f0a020;
+  --intent-error: #d03050;
+  --intent-info: #2080f0;
+
+  /* 字体族 */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'SFMono-Regular', Consolas,
+    'Liberation Mono', Menlo, monospace;
+
+  /* 字号 */
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 18px;
+  --fs-2xl: 22px;
+  --fs-3xl: 28px;
+
+  /* 间距（4px 基准网格） */
+  --sp-0: 0px;
+  --sp-1: 2px;
+  --sp-2: 4px;
+  --sp-3: 6px;
+  --sp-4: 8px;
+  --sp-5: 10px;
+  --sp-6: 12px;
+  --sp-8: 16px;
+  --sp-10: 20px;
+  --sp-12: 24px;
+  --sp-16: 32px;
+  --sp-20: 40px;
+  --sp-24: 48px;
+
+  /* 圆角 */
+  --r-sm: 3px;
+  --r-base: 5px;
+  --r-md: 6px;
+  --r-lg: 8px;
+  --r-xl: 12px;
+
+  /* 描边 */
+  --bw-hairline: 0.5px;
+  --bw-thin: 1px;
+  --bw-thick: 2px;
+
+  /* 动效 */
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 260ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* 布局尺寸 */
+  --sider-width: 240px;
+  --sider-collapsed-width: 60px;
+  --ai-panel-width: 380px;
+  --header-height: 48px;
+  --panel-padding: 16px;
+  --list-item-height: 36px;
+}
+
+/* ---------- Semantic：明色主题（默认） ---------- */
+:root,
+:root[data-theme='light'] {
+  --bg-app: #f6f8fa;
+  --bg-panel: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-selected: #eef2ff;
+  --bg-hover: #eceff3;
+  --text-primary: #11161e;
+  --text-secondary: #5c6675;
+  --text-tertiary: #8b95a6;
+  --text-on-brand: #ffffff;
+  --border: #d9dee5;
+  --border-strong: #b8c0cc;
+  --brand: #4f46e5;
+  --brand-hover: #4338ca;
+  --brand-active: #3730a3;
+  --brand-glow: rgba(79, 70, 229, 0.38);
+
+  /* 折叠态项目头像色板：浅底 + 深前景 */
+  --avatar-1-bg: #eef2ff; --avatar-1-fg: #4f46e5; /* 靛蓝 */
+  --avatar-2-bg: #ecfeff; --avatar-2-fg: #0891b2; /* 青 */
+  --avatar-3-bg: #ecfdf5; --avatar-3-fg: #059669; /* 翠 */
+  --avatar-4-bg: #fef3c7; --avatar-4-fg: #d97706; /* 琥珀 */
+  --avatar-5-bg: #fce7f3; --avatar-5-fg: #db2777; /* 粉 */
+  --avatar-6-bg: #ede9fe; --avatar-6-fg: #7c3aed; /* 紫 */
+  --avatar-7-bg: #ffedd5; --avatar-7-fg: #ea580c; /* 橙 */
+  color-scheme: light;
+}
+
+/* ---------- Semantic：暗色主题 ---------- */
+:root[data-theme='dark'] {
+  --bg-app: #0a0e14;
+  --bg-panel: #11161e;
+  --bg-elevated: #1c232e;
+  --bg-selected: #312e81;
+  --bg-hover: #1c232e;
+  --text-primary: #f6f8fa;
+  --text-secondary: #8b95a6;
+  --text-tertiary: #5c6675;
+  --text-on-brand: #ffffff;
+  --border: #2f3743;
+  --border-strong: #424b59;
+  --brand: #818cf8;
+  --brand-hover: #a5b4fc;
+  --brand-active: #c7d2fe;
+  --brand-glow: rgba(129, 140, 248, 0.42);
+
+  /* 折叠态项目头像色板：半透明深底 + 高饱和亮前景，融入深色面板 */
+  --avatar-1-bg: rgba(99, 102, 241, 0.16);  --avatar-1-fg: #a5b4fc; /* 靛蓝 */
+  --avatar-2-bg: rgba(8, 145, 178, 0.18);   --avatar-2-fg: #67e8f9; /* 青 */
+  --avatar-3-bg: rgba(5, 150, 105, 0.18);   --avatar-3-fg: #6ee7b7; /* 翠 */
+  --avatar-4-bg: rgba(217, 119, 6, 0.18);   --avatar-4-fg: #fcd34d; /* 琥珀 */
+  --avatar-5-bg: rgba(219, 39, 119, 0.18);  --avatar-5-fg: #f9a8d4; /* 粉 */
+  --avatar-6-bg: rgba(124, 58, 237, 0.18);  --avatar-6-fg: #c4b5fd; /* 紫 */
+  --avatar-7-bg: rgba(234, 88, 12, 0.18);   --avatar-7-fg: #fdba74; /* 橙 */
+  color-scheme: dark;
+}
+
+/* ---------- 全局基础样式 ---------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: 1.5;
+  color: var(--text-primary);
+  background-color: var(--bg-app);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  /* 禁止文本选择被拖拽产生的蓝框，桌面端体验 */
+  -webkit-user-select: none;
+  user-select: none;
+  overflow: hidden;
+}
+
+/* 输入框/文本域允许选择 */
+input,
+textarea,
+[contenteditable],
+.selectable {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* 滚动条样式（简约现代风：极细、半透明） */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--r-full, 9999px);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* 焦点可见性（无障碍）：仅键盘导航显示 outline，鼠标点击不留框 */
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* 去掉原生 button 默认背景/边框干扰，统一由组件或自定义样式控制 */
+button {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* 图片/链接默认行为 */
+img {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* —— Naive UI 组件点击残留边框清理 —— */
+/* 鼠标点击后不让 Naive 按钮留下胶囊 focus ring；仅键盘 :focus-visible 保留 */
+.n-button:not(:focus-visible):focus,
+.n-button *:focus {
+  box-shadow: none !important;
+  outline: none !important;
+}
+.n-float-button:not(:focus-visible):focus {
+  box-shadow: none !important;
+}
+/* 自定义图标按钮（lucide 包裹的 button）也不留框 */
+button:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
+}
+
+/* —— 过渡动画基础（简约现代风）—— */
+/* 可交互元素统一加柔和过渡，避免突变 */
+.n-button,
+.n-tag,
+.n-input,
+.n-radio-button,
+.n-checkbox,
+.n-collapse-item {
+  transition: all var(--dur-base) var(--ease-standard);
+}
+
+/* —— 图标旋转动画（刷新按钮加载态）—— */
+/* .icon-spin--active 时持续匀速旋转，告知用户正在加载 */
+.icon-spin--active {
+  animation: icon-spin 0.9s linear infinite;
+}
+@keyframes icon-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

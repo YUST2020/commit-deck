@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Content Security Policy：
+      - default-src 'self'：仅允许本地资源
+      - script-src 'self'：禁止内联脚本（Vite 产物为外部文件，满足）
+      - style-src 'self' 'unsafe-inline'：Naive UI 组件内联样式需要
+      - connect-src：允许调用 AI 服务（https:）+ 本地开发服务器（http:）+ ws（HMR）
+      - img-src data: https:：允许 base64 图与远程图
+      注：开发态 Vite 仍可能注入部分 inline 脚本（HMR），打包后此策略完全生效。
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data: https:; font-src 'self' data:; object-src 'none'; base-uri 'self'"
+    />
+    <title>Git Commit</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
