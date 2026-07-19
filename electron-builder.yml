@@ -5,6 +5,10 @@ directories:
   buildResources: build
 files:
   - out/**/*
+  # 托盘图标 / 窗口图标：dev 下走 build/，打包后需显式打入 app.asar，
+  # 否则 TrayService 与 createWindow 中的 icon 路径（__dirname/../../build/icon.png）
+  # 在安装后解析为 app.asar/build/icon.png 时找不到文件，托盘会回落到模糊的兜底 base64。
+  - build/icon.png
 win:
   target:
     - nsis

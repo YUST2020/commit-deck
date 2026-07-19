@@ -138,4 +138,4 @@
 
 ## 参考
 
-`可行性分析.md` · `详细方案设计.md` · `src/renderer/tokens/tokens.ts` · `src/renderer/composables/useTheme.ts`
+`src/renderer/tokens/tokens.ts` · `src/renderer/composables/useTheme.ts`
