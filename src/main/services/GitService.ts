@@ -6,7 +6,8 @@
 import path from 'path'
 import fs from 'fs'
 import simpleGit, { type SimpleGit } from 'simple-git'
-import type { BranchInfo, FileChange, FileStatus, GitSyncResult, LogEntry } from '@shared/index'
+import type { BranchInfo, ChangedFileInfo, ChangedFilesForReview, FileChange, FileStatus, GitSyncResult, LogEntry } from '@shared/index'
+import { classifyOmit } from './DiffAggregator'
 
 /** 为指定目录创建 git 实例（带基础超时与错误容忍） */
 function gitOf(repoPath: string): SimpleGit {
@@ -32,6 +33,87 @@ export async function checkIsRepo(repoPath: string): Promise<boolean> {
 /** 取目录名作为默认项目显示名 */
 export function dirName(repoPath: string): string {
   return path.basename(repoPath) || repoPath
+}
+
+/**
+ * 还原 git 输出路径的 C 风格转义（core.quotepath=true 时中文等非 ASCII 路径会被转义）。
+ *
+ * git 对含「不安全」字符（空格以外的控制字符、非 ASCII 字节、双引号、反斜杠等）的路径，
+ * 会用双引号包裹并对每个字节做八进制转义：如「详细」→ `"\350\257\246\347\273\206"`。
+ * 此函数还原为真实 UTF-8 字符串，使 UI 能正确显示中文文件名。
+ *
+ * 规则（与 git quote.c 一致）：
+ *   - 仅当字符串以双引号开始且以双引号结束才视为已转义，剥去首尾引号后逐字节解析；
+ *   - `\nnn` 八进制（1~3 位）→ 对应字节；
+ *   - `\n \t \r \" \\` 等常规转义 → 还原字符；
+ *   - `\xNN` 十六进制（git 较新版本可能输出）→ 对应字节；
+ *   - 其余字符按原字节保留。
+ *   - 不以双引号包裹的路径视为普通 ASCII 路径，原样返回（零副作用）。
+ */
+function decodeGitPath(raw: string): string {
+  if (raw.length < 2 || raw[0] !== '"' || raw[raw.length - 1] !== '"') {
+    return raw
+  }
+  const body = raw.slice(1, -1)
+  const bytes: number[] = []
+  let i = 0
+  while (i < body.length) {
+    const ch = body[i]
+    if (ch !== '\\') {
+      bytes.push(ch.charCodeAt(0) & 0xff)
+      i++
+      continue
+    }
+    const next = body[i + 1]
+    // 常规转义
+    switch (next) {
+      case 'n':
+        bytes.push(0x0a); i += 2; continue
+      case 't':
+        bytes.push(0x09); i += 2; continue
+      case 'r':
+        bytes.push(0x0d); i += 2; continue
+      case 'b':
+        bytes.push(0x08); i += 2; continue
+      case 'f':
+        bytes.push(0x0c); i += 2; continue
+      case 'v':
+        bytes.push(0x0b); i += 2; continue
+      case 'a':
+        bytes.push(0x07); i += 2; continue
+      case '"':
+        bytes.push(0x22); i += 2; continue
+      case '\\':
+        bytes.push(0x5c); i += 2; continue
+      case '0': case '1': case '2': case '3':
+      case '4': case '5': case '6': case '7': {
+        // 八进制：1~3 位
+        let oct = ''
+        let j = i + 1
+        while (j < body.length && oct.length < 3 && /^[0-7]$/.test(body[j])) {
+          oct += body[j]; j++
+        }
+        bytes.push(parseInt(oct, 8) & 0xff); i = j; continue
+      }
+      case 'x': {
+        // 十六进制 \xNN
+        const hex = body.slice(i + 2, i + 4)
+        if (/^[0-9a-fA-F]{2}$/.test(hex)) {
+          bytes.push(parseInt(hex, 16) & 0xff); i += 4; continue
+        }
+        bytes.push(next.charCodeAt(0) & 0xff); i += 2; continue
+      }
+      default:
+        // 未知转义：保留反斜杠后的字符
+        bytes.push(next.charCodeAt(0) & 0xff); i += 2; continue
+    }
+  }
+  // 字节数组 → UTF-8 字符串
+  try {
+    return Buffer.from(bytes).toString('utf8')
+  } catch {
+    return body
+  }
 }
 
 /** 把 git status 的原始状态码映射为语义 FileStatus */
@@ -66,7 +148,11 @@ export async function getStatus(repoPath: string): Promise<FileChange[]> {
     const indexCode = code[0]
     const wtCode = code[1]
     const isStagedInIndex = indexCode !== ' ' && indexCode !== '?'
-    const displayPath = f.from ? `${f.from} → ${f.path}` : f.path
+    // simple-git 返回的 f.path / f.from 是 git 原始输出，中文路径会被八进制转义
+    // （core.quotepath），这里统一还原为真实 UTF-8 字符串，确保 UI 正确显示中文
+    const realPath = decodeGitPath(f.path)
+    const realFrom = f.from ? decodeGitPath(f.from) : ''
+    const displayPath = realFrom ? `${realFrom} → ${realPath}` : realPath
 
     // 已暂存版本（index 与 HEAD 有差异）
     if (isStagedInIndex) {
@@ -74,12 +160,108 @@ export async function getStatus(repoPath: string): Promise<FileChange[]> {
     }
     // 工作区版本（index 与工作树有差异，或未跟踪）
     if (wtCode === '?') {
-      changes.push({ path: f.path, status: 'untracked', staged: false })
+      changes.push({ path: realPath, status: 'untracked', staged: false })
     } else if (wtCode !== ' ' && wtCode !== indexCode) {
-      changes.push({ path: f.path, status: mapStatus(code, false), staged: false })
+      changes.push({ path: realPath, status: mapStatus(code, false), staged: false })
     }
   }
   return changes
+}
+
+/**
+ * 代码审查文件选择器取数：列出当前可审查的改动文件。
+ *
+ * 与 aggregateDiffForAi 同源判断：有暂存 → source='staged'（仅暂存文件）；
+ * 无暂存 → source='all'（工作区已跟踪改动 + 未跟踪文件）。
+ * 这样选择器展示的文件集合与实际聚合审查的 diff 来源完全一致。
+ *
+ * 每个文件用 classifyOmit（与 DiffAggregator 同一规则）判定内容是否会被折叠：
+ * contentOmitted=true 的文件（二进制/产物/锁）在选择器中应禁用勾选——
+ * 勾选也无意义（内容会被省略）。reason 给出用于选择器徽标文案。
+ */
+export async function listChangedFilesForReview(
+  repoPath: string
+): Promise<ChangedFilesForReview> {
+  const git = gitOf(repoPath)
+
+  // 同源判断：有暂存内容则审查暂存，否则审查全量
+  const stagedDiff = await git.diff(['--cached'])
+  const hasStaged = stagedDiff.trim().length > 0
+
+  if (hasStaged) {
+    const files = await collectFromNameStatus(git, ['--cached'])
+    return { source: 'staged', files: annotateOmit(files, true) }
+  }
+
+  // 无暂存：已跟踪改动（--name-status）+ 未跟踪文件
+  const tracked = await collectFromNameStatus(git, [])
+  const st = await git.status()
+  // st.not_added 同样来自 git status 原始输出，中文路径会被八进制转义，需还原
+  const untracked = (st.not_added ?? []).map(decodeGitPath)
+  const all: Array<{ path: string; status: FileStatus }> = [
+    ...tracked,
+    ...untracked.map((p) => ({ path: p, status: 'untracked' as FileStatus }))
+  ]
+  return { source: 'all', files: annotateOmit(all, false) }
+}
+
+/**
+ * 用 git diff --name-status 取文件列表，解析状态码映射为 FileStatus。
+ * @param opts 额外的 git diff 选项（如 ['--cached'] 取暂存）。
+ *
+ * 注意：--name-status 必须放在 opts 之前。若 opts 含 '--'（路径分隔符），
+ * 其后的 --name-status 会被 git 当作 pathspec（不存在的路径）→ 返回空。
+ * 故这里固定为 ['--name-status', ...opts]，保证选项在前。
+ */
+async function collectFromNameStatus(
+  git: SimpleGit,
+  opts: string[]
+): Promise<Array<{ path: string; status: FileStatus }>> {
+  const raw = await git.diff(['--name-status', ...opts])
+  const out: Array<{ path: string; status: FileStatus }> = []
+  for (const line of raw.split('\n')) {
+    const t = line.trim()
+    if (!t) continue
+    // 状态码与路径以制表符分隔；重命名/拷贝格式为 R100\told\tnew，取新路径
+    const parts = t.split('\t')
+    const code = parts[0]
+    if (!code) continue
+    const filePathRaw = parts.length >= 3 ? parts[parts.length - 1] : parts[1] ?? ''
+    if (!filePathRaw) continue
+    // git --name-status 对中文等非 ASCII 路径会做八进制转义（core.quotepath），还原真实路径
+    out.push({ path: decodeGitPath(filePathRaw), status: nameStatusToFileStatus(code) })
+  }
+  return out
+}
+
+/** git --name-status 状态码 → FileStatus */
+function nameStatusToFileStatus(code: string): FileStatus {
+  const c = code[0]
+  if (c === 'A') return 'added'
+  if (c === 'D') return 'deleted'
+  if (c === 'R' || c === 'C') return 'renamed'
+  return 'modified'
+}
+
+/** 给文件列表补上 contentOmitted / omitReason（复用 DiffAggregator 规则） */
+function annotateOmit(
+  files: Array<{ path: string; status: FileStatus }>,
+  staged: boolean
+): ChangedFileInfo[] {
+  return files.map((f) => {
+    const { omit, reason } = classifyOmit(f.path)
+    let omitReason: 'binary' | 'generated' | undefined
+    if (omit && reason) {
+      omitReason = reason.reason === 'binary' ? 'binary' : 'generated'
+    }
+    return {
+      path: f.path,
+      status: f.status,
+      staged,
+      contentOmitted: omit,
+      omitReason
+    }
+  })
 }
 
 /** 获取提交历史 */

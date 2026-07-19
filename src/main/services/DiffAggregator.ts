@@ -30,8 +30,8 @@ const MAX_UNTRACKED_FILE_BYTES = 64 * 1024 // 64KB
  * 维护：新增模型时按其官方标称上下文长度补一条 pattern。
  */
 const MODEL_CONTEXT_MAP: Array<{ pattern: RegExp; ctx: number }> = [
-  // 超长上下文（200K）：glm-4.7 系列（含 glm-4.7-flash）
-  { pattern: /glm-4\.7/i, ctx: 200_000 },
+  // 超长上下文（200K+）：glm-4.7 / glm-5 系列（含 flash 变体）
+  { pattern: /glm-(4\.7|5)/i, ctx: 200_000 },
   // 长上下文（128K）
   { pattern: /gpt-4o|claude-3.*sonnet|glm-4|qwen-?2\.5|deepseek.*(v3|v4)/i, ctx: 128_000 },
   // 中等上下文（32K）
@@ -42,15 +42,15 @@ const MODEL_CONTEXT_MAP: Array<{ pattern: RegExp; ctx: number }> = [
 
 /**
  * 按模型推算可用的 diff 字符数上限。
- * 预留 4K token 给 system prompt + 输出；字符数 ≈ token × 2.5（中文保守值）。
+ * 预留 2K token 给 system prompt + 输出；字符数 ≈ token × 3.5（代码 diff 以 ASCII 为主，按 1 token ≈ 3.5 字符估算）。
  * 未知模型（model 为空或未命中）回落到 MAX_TOTAL_CHARS。
  */
 export function computeMaxDiffChars(model: string | undefined): number {
   if (!model || !model.trim()) return MAX_TOTAL_CHARS
   const entry = MODEL_CONTEXT_MAP.find((m) => m.pattern.test(model))
   const ctx = entry?.ctx ?? 8_000
-  const usable = Math.max(ctx - 4_000, 4_000)
-  return Math.floor(usable * 2.5)
+  const usable = Math.max(ctx - 2_000, 4_000)
+  return Math.floor(usable * 3.5)
 }
 
 /** 默认按二进制/产物处理的扩展名 */
@@ -121,8 +121,12 @@ function filePriority(filePath: string, changeLines: number): number {
   return 10 + lineScore
 }
 
-/** 判断是否应折叠内容（二进制 / 产物 / 锁文件） */
-function shouldOmitContent(filePath: string): {
+/**
+ * 判断是否应折叠内容（二进制 / 产物 / 锁文件）。
+ * 同时供文件选择器（listChangedFilesForReview）判定哪些文件内容会被规则折叠，
+ * 以在选择器中禁用勾选——保证「选择器展示」与「聚合实际处理」用同一套规则（DRY）。
+ */
+export function classifyOmit(filePath: string): {
   omit: boolean
   reason: Omit<OmittedFile, 'path'> | null
 } {
@@ -186,17 +190,19 @@ interface ProcessedFile {
 
 /**
  * 处理单个文件的 diff 文本：
- * - 产物/锁/二进制 → 仅保留 diff 头 + 折叠说明
- * - 超长 → 保留头 + 折叠统计
+ * - 产物/锁/二进制 → 仅保留 diff 头 + 折叠说明（强制包含也无法解析，仍折叠）
+ * - 超长 → 保留头 + 折叠统计（force=true 时跳过此折叠，保留全文）
  * - 否则原样返回
+ *
+ * @param force 强制包含：true 时不因单文件过大折叠（用户明确要求发送全文）
  */
-function processFileDiff(diffBlock: string, filePath: string): ProcessedFile {
-  const { omit, reason } = shouldOmitContent(filePath)
+function processFileDiff(diffBlock: string, filePath: string, force = false): ProcessedFile {
+  const { omit, reason } = classifyOmit(filePath)
   if (omit && reason) {
     return { text: keepHeader(diffBlock) + omittedLine(reason), omitted: reason }
   }
   // 补缺口：git 对无法文本解析的二进制文件输出 "Binary files a/x and b/x differ"，
-  // 扩展名不在黑名单（如 .dat / .bin / 无扩展名）时也会命中。统一折叠。
+  // 扩展名不在黑名单（如 .dat / .bin / 无扩展名）时也会命中。统一折叠（强制也无效）。
   if (/Binary files .+ and .+ differ/i.test(diffBlock)) {
     const r: Omit<OmittedFile, 'path'> = {
       reason: 'binary',
@@ -204,7 +210,7 @@ function processFileDiff(diffBlock: string, filePath: string): ProcessedFile {
     }
     return { text: keepHeader(diffBlock) + omittedLine(r), omitted: r }
   }
-  if (diffBlock.length > MAX_FILE_CHARS) {
+  if (!force && diffBlock.length > MAX_FILE_CHARS) {
     const { add, del } = countAddDel(diffBlock)
     const r: Omit<OmittedFile, 'path'> = {
       reason: 'too_large',
@@ -227,51 +233,138 @@ function keepHeader(diffBlock: string): string {
 }
 
 /**
- * 把整段 staged diff 按文件切分后逐个过滤，再按重要性装填，最后聚合。
+ * 按 hunk 切分（每个 hunk 以 `@@` 开头，到下一个 `@@` 或结尾）。
+ * 返回 [header, hunks[]] —— header 为到首个 `@@` 前的行（含末尾换行）。
+ */
+function splitHeaderAndHunks(diffBlock: string): { header: string; hunks: string[] } {
+  const lines = diffBlock.split('\n')
+  const headerLines: string[] = []
+  let i = 0
+  for (; i < lines.length; i++) {
+    if (lines[i].startsWith('@@')) break
+    headerLines.push(lines[i])
+  }
+  const header = headerLines.join('\n') + '\n'
+  const hunks: string[] = []
+  let cur: string[] = []
+  for (; i < lines.length; i++) {
+    if (lines[i].startsWith('@@') && cur.length > 0) {
+      hunks.push(cur.join('\n'))
+      cur = []
+    }
+    cur.push(lines[i])
+  }
+  if (cur.length > 0) hunks.push(cur.join('\n'))
+  return { header, hunks }
+}
+
+/**
+ * 部分截断一个 diff 块：保留 header + 尽可能多的完整 hunk + 截断标记。
+ * 用于强制包含文件在总配额装不下时（「超配额才截断」），保留尽可能多的内容而非整块丢弃。
  *
- * 装填策略（保证重要文件优先进入上下文）：
+ * @param block      原始 diff 块（未折叠）
+ * @param maxChars   该块允许占用的最大字符数（含 header 与截断标记）
+ * @returns 截断后的文本 + 是否发生截断
+ */
+function truncateHunks(block: string, maxChars: number): { text: string; truncated: boolean } {
+  if (block.length <= maxChars) return { text: block, truncated: false }
+  const { header, hunks } = splitHeaderAndHunks(block)
+  // 截断标记预留
+  const marker = '\n[已强制包含，因总量超限部分截断]\n'
+  const budget = maxChars - header.length - marker.length
+  if (budget <= 0) {
+    // 预算连 header 都装不下：退化为仅 header + 标记
+    return { text: header + marker, truncated: true }
+  }
+  const kept: string[] = []
+  let used = 0
+  for (const hunk of hunks) {
+    // 每个 hunk 末尾补一个换行以保持格式
+    const piece = hunk + '\n'
+    if (used + piece.length > budget) break
+    kept.push(piece)
+    used += piece.length
+  }
+  const text = header + kept.join('') + marker
+  return { text, truncated: true }
+}
+
+/**
+ * 把整段 diff 按文件切分后逐个过滤，再按重要性装填，最后聚合。
+ *
+ * 装填策略（三层优先级，保证重要文件优先进入上下文）：
  *   1. 按 `diff --git ` 切块，逐个 processFileDiff（折叠产物/二进制/超长）
- *   2. 折叠文件（占空间极小，仅头+说明行）直接纳入，不参与裁剪竞争
- *   3. 未折叠文件按 filePriority 降序（源码 > 配置 > 样式 > 测试）+ 改动行数加权，
- *      依次累加直到达到 maxTotalChars
- *   4. 落选文件仅保留 diff 头 + 截断标记，记入 omitted
- *   5. 输出仍按文件原顺序，保持 diff 阅读连贯
+ *   2. 第一优先：forceIncludePaths 命中的未折叠文件，优先占用配额；
+ *      装不下时按 hunk 部分截断（保留尽可能多内容），而非整块丢弃
+ *   3. 第二优先：折叠文件（占空间极小，仅头+说明行）直接纳入，以"告知存在"
+ *   4. 第三优先：未折叠文件按 filePriority 降序（源码 > 配置 > 样式 > 测试）
+ *      + 改动行数加权，依次累加直到达到 maxTotalChars
+ *   5. 落选文件仅保留 diff 头 + 截断标记，记入 omitted
+ *   6. 输出仍按文件原顺序，保持 diff 阅读连贯
  */
 function filterAggregatedDiff(
   rawDiff: string,
   omitted: OmittedFile[],
-  maxTotalChars: number
+  maxTotalChars: number,
+  forceIncludePaths: string[] = []
 ): { diff: string; truncated: boolean } {
   if (!rawDiff.trim()) return { diff: '', truncated: false }
 
+  const forceSet = new Set(forceIncludePaths)
   const blocks = splitByFile(rawDiff)
   type Item = {
     filePath: string
     processed: ProcessedFile
     order: number
     block: string
+    forced: boolean
+    /** 最终输出文本（默认等于 processed.text；强制文件部分截断时覆盖为截断后文本） */
+    outText: string
+    /** 强制文件被部分截断时的标记（null=未截断）；用于记入 omitted */
+    forceTruncNote: string | null
   }
   const items: Item[] = blocks.map((block, order) => {
     const filePath = extractFilePath(block) ?? `__unknown_${order}`
-    const processed = processFileDiff(block, filePath)
-    return { filePath, processed, order, block }
+    const forced = forceSet.has(filePath)
+    const processed = processFileDiff(block, filePath, forced)
+    return { filePath, processed, order, block, forced, outText: processed.text, forceTruncNote: null }
   })
 
-  // 装填选择集：折叠文件必进；未折叠文件按优先级竞争配额
   const keepSet = new Set<number>()
   let total = 0
 
-  // 先吸纳所有折叠文件（占空间小，价值在于"告知存在"）
+  // 第一优先：强制包含且未折叠的文件（二进制/产物强制无效，仍折叠，归入第二层）
+  // 优先占用配额；装不下时部分截断（保留尽可能多 hunk），而非整块丢弃
   for (const it of items) {
-    if (it.processed.omitted) {
-      keepSet.add(it.order)
-      total += it.processed.text.length
+    if (it.forced && !it.processed.omitted) {
+      if (total + it.outText.length <= maxTotalChars) {
+        keepSet.add(it.order)
+        total += it.outText.length
+      } else {
+        const budget = maxTotalChars - total
+        // 预算需至少容下 header + 截断标记，否则放弃该强制文件（让其落到 omitted）
+        if (budget > keepHeader(it.processed.text).length + 64) {
+          const { text } = truncateHunks(it.outText, budget)
+          it.outText = text
+          it.forceTruncNote = '已强制包含，因总量超限部分截断'
+          keepSet.add(it.order)
+          total += it.outText.length
+        }
+      }
     }
   }
 
-  // 未折叠文件按优先级排序（稳定：同优先级按原顺序）
+  // 第二优先：折叠文件（占空间小，价值在于"告知存在"）
+  for (const it of items) {
+    if (it.processed.omitted) {
+      keepSet.add(it.order)
+      total += it.outText.length
+    }
+  }
+
+  // 第三优先：未折叠非强制文件按优先级排序（稳定：同优先级按原顺序），竞争剩余配额
   const unfolded = items
-    .filter((it) => !it.processed.omitted)
+    .filter((it) => !it.processed.omitted && !it.forced)
     .map((it) => ({
       it,
       priority: filePriority(it.filePath, (() => {
@@ -282,24 +375,36 @@ function filterAggregatedDiff(
     .sort((a, b) => b.priority - a.priority || a.it.order - b.it.order)
 
   for (const { it } of unfolded) {
-    if (total + it.processed.text.length > maxTotalChars) continue
+    if (total + it.outText.length > maxTotalChars) continue
     keepSet.add(it.order)
-    total += it.processed.text.length
+    total += it.outText.length
   }
 
-  const truncated = items.some((it) => !keepSet.has(it.order))
+  // truncated：有文件未纳入，或强制文件被部分截断
+  const truncated =
+    items.some((it) => !keepSet.has(it.order)) ||
+    items.some((it) => it.forceTruncNote !== null)
   const sizeLimitReason: Omit<OmittedFile, 'path'> = {
     reason: 'size_limit',
     note: '总量超限，内容已省略'
+  }
+  const forceTruncReason: Omit<OmittedFile, 'path'> = {
+    reason: 'too_large',
+    note: '已强制包含，因总量超限部分截断'
   }
 
   // 按原顺序输出（保持 diff 阅读连贯）
   const out: string[] = []
   for (const it of items) {
     if (keepSet.has(it.order)) {
-      out.push(it.processed.text)
+      out.push(it.outText)
+      // 折叠文件（产物/二进制/超长）记入 omitted
       if (it.processed.omitted) {
         omitted.push({ path: it.filePath, ...it.processed.omitted })
+      }
+      // 强制文件被部分截断：记入 omitted（reason 复用 too_large）
+      if (it.forceTruncNote) {
+        omitted.push({ path: it.filePath, ...forceTruncReason })
       }
     } else {
       out.push(keepHeader(it.block) + omittedLine(sizeLimitReason))
@@ -314,6 +419,21 @@ function filterAggregatedDiff(
 function splitByFile(rawDiff: string): string[] {
   const parts = rawDiff.split(/(?=^diff --git )/m)
   return parts.map((s) => s).filter((s) => s.trim().length > 0)
+}
+
+/**
+ * 按路径白名单过滤 diff：只保留命中 onlySet 的文件块。
+ * 用于代码审查「文件选择器」——用户勾选了哪些文件就只保留这些文件的 diff。
+ * 提取不到路径的块（异常）直接丢弃，避免脏数据进入上下文。
+ */
+function filterBlocksByPaths(rawDiff: string, onlySet: Set<string>): string {
+  if (!rawDiff.trim()) return ''
+  const blocks = splitByFile(rawDiff)
+  const kept = blocks.filter((b) => {
+    const fp = extractFilePath(b)
+    return fp ? onlySet.has(fp) : false
+  })
+  return kept.join('')
 }
 
 /** 从 diff 块中提取文件路径（取 +++ b/xxx） */
@@ -332,16 +452,19 @@ function extractFilePath(block: string): string | null {
 /**
  * 为未跟踪文件生成类 diff 文本（全为新增行）。
  * - 读文件内容前先判大小与扩展名，避免读入巨型/二进制文件。
+ * - force=true（强制包含）时跳过 MAX_UNTRACKED_FILE_BYTES 与单文件过大折叠，
+ *   尽量读全文（仍受总配额约束；二进制/产物强制无效）。
  * 返回处理后的文本 + 被忽略原因（若有）。
  */
 function diffForUntracked(
   git: SimpleGit,
   repoPath: string,
-  filePath: string
+  filePath: string,
+  force = false
 ): Promise<ProcessedFile> {
   return (async () => {
     void git
-    const { omit, reason } = shouldOmitContent(filePath)
+    const { omit, reason } = classifyOmit(filePath)
     const header =
       `diff --git a/${filePath} b/${filePath}\n` +
       `new file mode 100644\n` +
@@ -350,7 +473,7 @@ function diffForUntracked(
     if (omit && reason) {
       return { text: header + omittedLine(reason), omitted: reason }
     }
-    // 读文件内容（带大小上限）
+    // 读文件内容（强制时放宽大小上限，否则带 64KB 上限）
     const abs = path.join(repoPath, filePath)
     const fs = await import('fs')
     let stat
@@ -359,7 +482,7 @@ function diffForUntracked(
     } catch {
       return { text: header + '[file not readable]\n', omitted: null }
     }
-    if (stat.size > MAX_UNTRACKED_FILE_BYTES) {
+    if (!force && stat.size > MAX_UNTRACKED_FILE_BYTES) {
       const r: Omit<OmittedFile, 'path'> = {
         reason: 'too_large',
         note: `未跟踪文件过大（${Math.round(stat.size / 1024)}KB），内容已省略`
@@ -372,7 +495,7 @@ function diffForUntracked(
     } catch {
       return { text: header + '[file not readable]\n', omitted: null }
     }
-    // 检测是否包含 NUL 字节（典型二进制特征），有则折叠
+    // 检测是否包含 NUL 字节（典型二进制特征），有则折叠（强制也无效）
     if (content.includes('\0')) {
       const r: Omit<OmittedFile, 'path'> = {
         reason: 'binary',
@@ -383,8 +506,8 @@ function diffForUntracked(
     const lines = content.split('\n')
     const body = lines.map((l) => '+' + l).join('\n')
     const block = header + '@@ -0,0 +1,' + lines.length + ' @@\n' + body + '\n'
-    // 走 processFileDiff 统一处理超长折叠
-    return processFileDiff(block, filePath)
+    // 走 processFileDiff 统一处理超长折叠（force 透传）
+    return processFileDiff(block, filePath, force)
   })()
 }
 
@@ -393,21 +516,31 @@ function diffForUntracked(
  * - 有暂存 → source='staged'，仅取 --cached diff
  * - 无暂存 → source='all'，取工作区已跟踪文件 diff + 未跟踪文件内容
  *
- * @param repoPath 仓库绝对路径
- * @param model    AI 模型 id（用于按上下文长度动态推算总量上限；为空则用 fallback 常量）
+ * @param repoPath         仓库绝对路径
+ * @param model            AI 模型 id（用于按上下文长度动态推算总量上限；为空则用 fallback 常量）
+ * @param forceIncludePaths 用户指定「强制包含」的文件路径（优先占用配额、尽量发全文；二进制/产物除外）
+ * @param onlyPaths        仅保留这些路径的改动（代码审查文件选择器选用）。
+ *                         为空/未传 = 不过滤（全量，commit message 生成即此模式）。
+ *                         source 判断不受影响：仍按「有暂存则 staged 否则 all」，
+ *                         onlyPaths 只在确定 source 后对文件集做白名单过滤。
  */
 export async function aggregateDiffForAi(
   repoPath: string,
-  model?: string
+  model?: string,
+  forceIncludePaths: string[] = [],
+  onlyPaths: string[] = []
 ): Promise<DiffForAi> {
   const git: SimpleGit = simpleGit({ baseDir: repoPath, binary: 'git', maxConcurrentProcesses: 4 })
   const omitted: OmittedFile[] = []
   const maxTotal = computeMaxDiffChars(model)
+  const forceSet = new Set(forceIncludePaths)
+  const onlySet = onlyPaths.length > 0 ? new Set(onlyPaths) : null
 
   // 1. 优先尝试暂存 diff
   const stagedRaw = await git.diff(['--cached'])
   if (stagedRaw.trim()) {
-    const { diff, truncated } = filterAggregatedDiff(stagedRaw, omitted, maxTotal)
+    const filtered = onlySet ? filterBlocksByPaths(stagedRaw, onlySet) : stagedRaw
+    const { diff, truncated } = filterAggregatedDiff(filtered, omitted, maxTotal, forceIncludePaths)
     return { diff, truncated, omittedFiles: omitted, source: 'staged' }
   }
 
@@ -418,7 +551,8 @@ export async function aggregateDiffForAi(
   let truncated = false
   let used = 0 // 已用配额（字符）
   if (trackedRaw.trim()) {
-    const r = filterAggregatedDiff(trackedRaw, omitted, maxTotal)
+    const trackedFiltered = onlySet ? filterBlocksByPaths(trackedRaw, onlySet) : trackedRaw
+    const r = filterAggregatedDiff(trackedFiltered, omitted, maxTotal, forceIncludePaths)
     parts.push(r.diff)
     truncated = truncated || r.truncated
     used += r.diff.length
@@ -426,31 +560,68 @@ export async function aggregateDiffForAi(
 
   // 2b. 未跟踪文件：用 git status 取列表，逐个生成内容 diff
   const st = await git.status()
-  const untracked = st.not_added ?? []
+  // onlyPaths 白名单过滤未跟踪文件
+  const untrackedAll = st.not_added ?? []
+  const untracked = onlySet ? untrackedAll.filter((f) => onlySet.has(f)) : untrackedAll
 
-  // 收集每个未跟踪文件的处理结果，再按优先级在剩余配额内装填
-  type UntrackedItem = { filePath: string; processed: ProcessedFile; order: number }
+  // 收集每个未跟踪文件的处理结果（强制包含透传 force），再按三层优先级装填
+  type UntrackedItem = {
+    filePath: string
+    processed: ProcessedFile
+    order: number
+    forced: boolean
+    outText: string
+    forceTruncNote: string | null
+  }
   const untrackedItems: UntrackedItem[] = []
   for (const f of untracked) {
-    const processed = await diffForUntracked(git, repoPath, f)
-    untrackedItems.push({ filePath: f, processed, order: untrackedItems.length })
+    const forced = forceSet.has(f)
+    const processed = await diffForUntracked(git, repoPath, f, forced)
+    untrackedItems.push({ filePath: f, processed, order: untrackedItems.length, forced, outText: processed.text, forceTruncNote: null })
   }
 
   const sizeLimitReason: Omit<OmittedFile, 'path'> = {
     reason: 'size_limit',
     note: '总量超限，内容已省略'
   }
-
-  // 折叠文件（产物/二进制/超长）必进；未折叠按优先级排序后在剩余配额内装填
+  const forceTruncReason: Omit<OmittedFile, 'path'> = {
+    reason: 'too_large',
+    note: '已强制包含，因总量超限部分截断'
+  }
   const keepSet = new Set<number>()
+
+  // 第一优先：强制包含且未折叠的文件，优先占用剩余配额；装不下时部分截断
+  for (const it of untrackedItems) {
+    if (it.forced && !it.processed.omitted) {
+      if (used + it.outText.length <= maxTotal) {
+        keepSet.add(it.order)
+        used += it.outText.length
+      } else {
+        const budget = maxTotal - used
+        const headerLen =
+          (`diff --git a/${it.filePath} b/${it.filePath}\nnew file mode 100644\n--- /dev/null\n+++ b/${it.filePath}\n`).length
+        if (budget > headerLen + 64) {
+          const { text } = truncateHunks(it.outText, budget)
+          it.outText = text
+          it.forceTruncNote = '已强制包含，因总量超限部分截断'
+          keepSet.add(it.order)
+          used += it.outText.length
+        }
+      }
+    }
+  }
+
+  // 第二优先：折叠文件（占空间小，纳入以"告知存在"）
   for (const it of untrackedItems) {
     if (it.processed.omitted) {
       keepSet.add(it.order)
-      used += it.processed.text.length
+      used += it.outText.length
     }
   }
+
+  // 第三优先：未折叠非强制文件按优先级排序后在剩余配额内装填
   const unfoldedUntracked = untrackedItems
-    .filter((it) => !it.processed.omitted)
+    .filter((it) => !it.processed.omitted && !it.forced)
     .map((it) => ({
       it,
       priority: filePriority(
@@ -463,17 +634,21 @@ export async function aggregateDiffForAi(
     }))
     .sort((a, b) => b.priority - a.priority || a.it.order - b.it.order)
   for (const { it } of unfoldedUntracked) {
-    if (used + it.processed.text.length > maxTotal) continue
+    if (used + it.outText.length > maxTotal) continue
     keepSet.add(it.order)
-    used += it.processed.text.length
+    used += it.outText.length
   }
 
   // 按原顺序输出未跟踪文件
   for (const it of untrackedItems) {
     if (keepSet.has(it.order)) {
-      parts.push(it.processed.text)
+      parts.push(it.outText)
       if (it.processed.omitted) {
         omitted.push({ path: it.filePath, ...it.processed.omitted })
+      }
+      if (it.forceTruncNote) {
+        truncated = true
+        omitted.push({ path: it.filePath, ...forceTruncReason })
       }
     } else {
       truncated = true

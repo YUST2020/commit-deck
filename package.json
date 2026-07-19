@@ -1,7 +1,7 @@
 {
-  "name": "git-ai-commit-message",
+  "name": "commit-deck",
   "version": "0.1.0",
-  "description": "✨ 基于 AI 驱动 Git 提交助手。本地查看 Diff、一键生成符合规范的 Commit Message，让每一次提交都专业且高效。",
+  "description": "AI 驱动的 Git 提交信息助手",
   "author": "",
   "main": "./out/main/index.js",
   "scripts": {
@@ -21,6 +21,7 @@
   "dependencies": {
     "electron-store": "^8.2.0",
     "lucide-vue-next": "^1.0.0",
+    "markdown-it": "^14.3.0",
     "naive-ui": "^2.38.2",
     "pinia": "^2.2.6",
     "simple-git": "^3.27.0",
@@ -28,6 +29,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.1",
+    "@types/markdown-it": "^14.1.2",
     "@vitejs/plugin-vue": "^5.2.1",
     "electron": "^33.2.1",
     "electron-builder": "^25.1.8",
@@ -44,5 +46,11 @@
     "vite": "^5.4.11",
     "vue-eslint-parser": "^10.3.0",
     "vue-tsc": "^2.1.10"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
   }
 }

@@ -298,3 +298,45 @@ function httpErrMsg(status: number, body: string): string {
   const detail = body ? `\n${body}` : ''
   return prefix + detail
 }
+
+/* ---------- 连通性测试 ---------- */
+/** 连通性测试超时（仅防代理 hang；DNS 失败/拒连会快速返回） */
+const TEST_TIMEOUT_MS = 15000
+
+/**
+ * 连通性测试：用最小非流式请求验证鉴权 / 地址 / 模型可达性。
+ *
+ * 与 streamGenerate 区别：不流式、不关心返回内容、不带 thinking 参数
+ * （思考模式更慢更贵，对连通性验证无意义）。成功 resolve void，失败抛含
+ * HTTP status 与响应体的 Error（文案复用 httpErrMsg，天然适配 401/429 等）。
+ */
+export async function testConnection(config: AiServiceConfig): Promise<void> {
+  const { url, model } = resolveEndpoint(config)
+  // 最小请求体：只验证鉴权 / 地址 / 模型可达性，两协议字段一致
+  const body = JSON.stringify({
+    model,
+    messages: [{ role: 'user', content: 'ping' }],
+    max_tokens: 1,
+    stream: false
+  })
+
+  const headers: Record<string, string> =
+    config.protocol === 'openai'
+      ? { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` }
+      : {
+          'Content-Type': 'application/json',
+          'x-api-key': config.apiKey,
+          'anthropic-version': '2023-06-01'
+        }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    signal: AbortSignal.timeout(TEST_TIMEOUT_MS),
+    headers,
+    body
+  })
+  if (!res.ok) {
+    const text = await safeReadText(res)
+    throw new Error(httpErrMsg(res.status, text))
+  }
+}

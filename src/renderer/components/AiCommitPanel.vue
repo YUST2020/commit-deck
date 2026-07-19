@@ -40,16 +40,23 @@ import {
   Plus,
   ListPlus,
   CloudUpload,
-  FileWarning
+  FileWarning,
+  Zap,
+  ZapOff,
+  ScanEye
 } from 'lucide-vue-next'
 import type { AiServiceConfig, CommitPrefix, OmittedFile } from '@shared/index'
 import { useAiStore } from '@/stores/useAiStore'
 import { useGitStore } from '@/stores/useGitStore'
+import { useCodeReviewStore } from '@/stores/useCodeReviewStore'
 import AiServiceConfigModal from './AiServiceConfigModal.vue'
 import PrefixManager from './PrefixManager.vue'
+import CodeReviewModal from './CodeReviewModal.vue'
+import ReviewFilePicker from './ReviewFilePicker.vue'
 
 const ai = useAiStore()
 const git = useGitStore()
+const review = useCodeReviewStore()
 const message = useMessage()
 const dialog = useDialog()
 
@@ -347,7 +354,7 @@ async function onCommit(push: boolean): Promise<void> {
         v-if="ai.omittedFiles.length"
         trigger="click"
         placement="top"
-        :width="340"
+        :width="420"
       >
         <template #trigger>
           <button class="ai__omitted" title="查看被忽略的文件">
@@ -373,15 +380,67 @@ async function onCommit(push: boolean): Promise<void> {
               >
                 {{ omittedLabel(f.reason) }}
               </NTag>
+              <!-- 强制包含开关：非二进制可点（点击后下次生成发送全文）；
+                   二进制强制无效，禁用 + tooltip 说明 -->
+              <NTooltip v-if="f.reason !== 'binary'">
+                <template #trigger>
+                  <button
+                    class="omitted__force"
+                    :class="{ 'omitted__force--on': ai.isForceIncluded(f.path) }"
+                    :title="ai.isForceIncluded(f.path) ? '取消强制包含' : '强制包含（下次生成发送全文）'"
+                    @click="ai.toggleForceInclude(f.path)"
+                  >
+                    <Zap v-if="ai.isForceIncluded(f.path)" :size="12" />
+                    <ZapOff v-else :size="12" />
+                  </button>
+                </template>
+                {{ ai.isForceIncluded(f.path)
+                  ? '已设为强制包含：下次生成将尽量发送该文件全文（总量超限时部分截断）'
+                  : '强制包含：下次生成将尽量发送该文件全文（总量超限时部分截断）' }}
+              </NTooltip>
+              <NTooltip v-else>
+                <template #trigger>
+                  <button class="omitted__force omitted__force--disabled" disabled>
+                    <ZapOff :size="12" />
+                  </button>
+                </template>
+                二进制内容无法解析，不可强制包含
+              </NTooltip>
             </div>
           </div>
           <div class="omitted__note">{{ omittedReasonText(ai.omittedFiles) }}</div>
+          <!-- 有强制包含项时显示「重新生成」按钮，触发带上强制文件全文的新请求 -->
+          <NButton
+            v-if="ai.forceIncludePaths.length"
+            size="small"
+            type="primary"
+            block
+            class="omitted__regen"
+            @click="onGenerate"
+          >
+            <template #icon><RefreshCw :size="14" /></template>
+            重新生成（含 {{ ai.forceIncludePaths.length }} 个强制文件）
+          </NButton>
         </div>
       </NPopover>
 
       <span class="ai__bar-spacer" />
 
       <!-- 右：随状态变化的操作 -->
+      <!-- 代码审查入口：贴在生成按钮左侧（spacer 之后、状态操作组之前），
+           先弹树状文件选择器，确认范围后再审查 -->
+      <NButton
+        size="small"
+        quaternary
+        class="ai__review-btn"
+        :loading="review.phase === 'generating'"
+        title="选择文件并审查当前未提交的改动"
+        @click="review.openPicker()"
+      >
+        <template #icon><ScanEye :size="14" /></template>
+        代码审查
+      </NButton>
+
       <template v-if="ai.phase === 'idle'">
         <NButton size="small" secondary :disabled="!ai.canGenerate" @click="onGenerate">
           <template #icon><Sparkles :size="14" /></template>
@@ -390,7 +449,8 @@ async function onCommit(push: boolean): Promise<void> {
         <NButton
           size="small"
           type="primary"
-          :disabled="!bodyValue.trim() || !git.stagedCount"
+          :disabled="!bodyValue.trim() || !git.stagedCount || ai.commitPushing"
+          :loading="ai.committing"
           @click="onCommit(false)"
         >
           <template #icon><Check :size="14" /></template>
@@ -400,7 +460,8 @@ async function onCommit(push: boolean): Promise<void> {
           size="small"
           type="primary"
           ghost
-          :disabled="!bodyValue.trim() || !git.stagedCount"
+          :disabled="!bodyValue.trim() || !git.stagedCount || ai.committing"
+          :loading="ai.commitPushing"
           @click="onCommit(true)"
         >
           <template #icon><CloudUpload :size="14" /></template>
@@ -420,11 +481,11 @@ async function onCommit(push: boolean): Promise<void> {
           <template #icon><RefreshCw :size="14" /></template>
           重新生成
         </NButton>
-        <NButton size="small" type="primary" :disabled="!git.stagedCount" @click="onCommit(false)">
+        <NButton size="small" type="primary" :disabled="!git.stagedCount || ai.commitPushing" :loading="ai.committing" @click="onCommit(false)">
           <template #icon><Check :size="14" /></template>
           提交
         </NButton>
-        <NButton size="small" type="primary" ghost :disabled="!git.stagedCount" @click="onCommit(true)">
+        <NButton size="small" type="primary" ghost :disabled="!git.stagedCount || ai.committing" :loading="ai.commitPushing" @click="onCommit(true)">
           <template #icon><CloudUpload :size="14" /></template>
           提交并推送
         </NButton>
@@ -457,6 +518,12 @@ async function onCommit(push: boolean): Promise<void> {
       :prefixes="ai.prefs.prefixes"
       @save="onPrefixSave"
     />
+
+    <!-- 代码审查结果浮窗（底部「代码审查」按钮触发；审查对象与 commit 同源 diff） -->
+    <CodeReviewModal v-model:show="review.modalOpen" />
+
+    <!-- 文件选择器：点「代码审查」先选范围，确认后再审查 -->
+    <ReviewFilePicker v-model:show="review.pickerOpen" />
 
     <!-- 快捷新增前缀弹窗（Electron 沙箱禁用 window.prompt） -->
     <NModal
@@ -580,10 +647,6 @@ async function onCommit(push: boolean): Promise<void> {
 .px__item:hover {
   color: var(--text-primary);
 }
-.px__item:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: 2px;
-}
 .px__item--active {
   color: var(--text-on-brand);
   background: var(--brand);
@@ -612,10 +675,6 @@ async function onCommit(push: boolean): Promise<void> {
 .px__btn:hover {
   color: var(--brand);
   background: var(--bg-hover);
-}
-.px__btn:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: 2px;
 }
 
 /* 主体：统一文本区 */
@@ -739,6 +798,10 @@ async function onCommit(push: boolean): Promise<void> {
 .ai__bar-spacer {
   flex: 1;
 }
+/* 代码审查入口：位于右簇最左（生成按钮左侧），无需额外左间距 */
+.ai__review-btn {
+  flex-shrink: 0;
+}
 .ai__detail {
   display: flex;
   align-items: center;
@@ -834,5 +897,42 @@ async function onCommit(push: boolean): Promise<void> {
   color: var(--text-tertiary);
   border-top: 1px solid var(--border);
   padding-top: var(--sp-2);
+}
+/* 强制包含按钮：默认弱化，激活时品牌色高亮 */
+.omitted__force {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition:
+    background var(--dur-base) var(--ease-standard),
+    color var(--dur-base) var(--ease-standard);
+}
+.omitted__force:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+.omitted__force--on {
+  color: var(--brand);
+  background: var(--bg-hover);
+}
+.omitted__force--disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.omitted__force--disabled:hover {
+  background: transparent;
+  color: var(--text-tertiary);
+}
+.omitted__regen {
+  margin-top: var(--sp-1);
+  flex-shrink: 0;
 }
 </style>

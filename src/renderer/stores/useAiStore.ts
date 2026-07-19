@@ -56,10 +56,24 @@ export const useAiStore = defineStore('ai', () => {
   /** 被忽略/折叠/截断的文件列表（点击可查看详情） */
   const omittedFiles = ref<OmittedFile[]>([])
   /**
+   * 用户指定「强制包含」的文件路径（内存临时态，不落盘）。
+   * 生成时优先占用配额、尽量发全文（二进制/产物除外）；仅当总配额装不下时部分截断。
+   * 每次 generate 不清空（支持同批 diff 反复调整重生成），切换项目时清空。
+   */
+  const forceIncludePaths = ref<string[]>([])
+  /**
    * 用户预填草稿：生成前用户可手写要点，生成时作为补充上下文发给 AI 润色。
    * 生成完成后清空（润色结果已写入 message）。
    */
   const userDraft = ref('')
+
+  /**
+   * 提交中（不含推送）—— 驱动「提交」按钮 loading，互斥禁用「提交并推送」。
+   * pre-commit 钩子可能耗时数秒甚至更长，需要 loading 反馈避免误以为按钮无响应。
+   */
+  const committing = ref(false)
+  /** 提交并推送中 —— 驱动「提交并推送」按钮 loading，互斥禁用「提交」 */
+  const commitPushing = ref(false)
 
   let flushTimer: ReturnType<typeof setTimeout> | null = null
   let unsubChunk: (() => void) | null = null
@@ -195,14 +209,45 @@ export const useAiStore = defineStore('ai', () => {
     }, 30)
   }
 
+  /**
+   * 首块超时看门狗：aiGenerate 返回成功后启动，收到第一个 chunk 即清除。
+   * 若在窗口内既无数据也无 done/error（连接挂起），切到 error 提示，避免一直转圈。
+   * 仅在「尚未收到任何数据」时计时——一旦开始流式输出就说明链路活着，不再误杀慢生成。
+   */
+  const FIRST_CHUNK_TIMEOUT_MS = 30_000
+  let firstChunkTimer: ReturnType<typeof setTimeout> | null = null
+  let receivedAnyChunk = false
+
+  function startFirstChunkWatchdog(): void {
+    clearFirstChunkWatchdog()
+    receivedAnyChunk = false
+    firstChunkTimer = setTimeout(() => {
+      firstChunkTimer = null
+      if (phase.value === 'generating' && !receivedAnyChunk) {
+        unsubscribe()
+        error.value = '生成无响应：服务长时间未返回数据，请检查网络或 AI 配置后重试'
+        phase.value = 'error'
+      }
+    }, FIRST_CHUNK_TIMEOUT_MS)
+  }
+  function clearFirstChunkWatchdog(): void {
+    if (firstChunkTimer) {
+      clearTimeout(firstChunkTimer)
+      firstChunkTimer = null
+    }
+  }
+
   /** 订阅主进程流事件（幂等：重复调用先解绑旧的） */
   function subscribe(): void {
     unsubscribe()
     unsubChunk = window.api.onAiChunk((delta) => {
+      receivedAnyChunk = true
+      clearFirstChunkWatchdog()
       buffer.value = buffer.value + delta
       scheduleFlush()
     })
     unsubDone = window.api.onAiDone(() => {
+      clearFirstChunkWatchdog()
       // flush 残留缓冲后切到编辑态
       if (flushTimer) {
         clearTimeout(flushTimer)
@@ -213,6 +258,7 @@ export const useAiStore = defineStore('ai', () => {
       phase.value = 'editing'
     })
     unsubError = window.api.onAiError((err) => {
+      clearFirstChunkWatchdog()
       if (flushTimer) {
         clearTimeout(flushTimer)
         flushTimer = null
@@ -244,6 +290,8 @@ export const useAiStore = defineStore('ai', () => {
   /**
    * 触发生成。
    * 流程：取 diff → 组装 messages → 订阅流 → invoke 启动。
+   * 整段 try/catch 兜底：任何异常（IPC clone 失败、网络、序列化等）都不许卡在 generating 态，
+   * 且保留原始错误到控制台，同时给出可读提示。
    */
   async function generate(): Promise<void> {
     const repoPath = project.active?.path
@@ -258,90 +306,113 @@ export const useAiStore = defineStore('ai', () => {
     truncated.value = false
     omittedFiles.value = []
 
-    // 取 diff（暂存优先，否则全量）
-    // 传 model 给主进程，用于按模型上下文长度动态推算 diff 总量上限
-    const cfgSnap = config.value
-    const modelForDiff = cfgSnap
-      ? cfgSnap.presetCustomModel
-        ? cfgSnap.model
-        : cfgSnap.presetModel
-      : undefined
-    const diffRes = await window.api.gitDiffForAi(repoPath, modelForDiff)
-    if (!diffRes.ok) {
-      error.value = diffRes.error.message || '获取差异失败'
-      phase.value = 'error'
-      return
-    }
-    const { diff, truncated: t, source: src, omittedFiles: om } = diffRes.data
-    truncated.value = t
-    source.value = src
-    omittedFiles.value = om ?? []
-
-    if (!diff.trim()) {
-      error.value = '没有可生成的改动'
-      phase.value = 'error'
-      return
-    }
-
-    // 组装消息（truncated=true 时会在 system prompt 注入"仅基于已展示内容总结"告知）
-    const messages: AiMessage[] = buildMessages(
-      {
-        rules: prefs.value?.customRules || DEFAULT_RULES,
-        prefix: selectedPrefix.value?.label ?? null,
-        detailed: prefs.value?.detailed ?? true,
-        source: src,
-        userDraft: userDraft.value.trim() || null,
-        truncated: t
-      },
-      diff
-    )
-
-    // 调试用：在控制台打印完整 prompt（system + user），便于排查生成效果
-    // 主进程终端也有同样打印（AiService.streamGenerate）；此处 DevTools 可见。
-    const thinkFlag = cfgSnap?.thinking ? ` · thinking:${cfgSnap.thinkingEffort}` : ''
-    // eslint-disable-next-line no-console
-    console.groupCollapsed(
-      `%c[AI Prompt]%c ${messages.length} msgs · ${src} · diff ${diff.length} chars${
-        userDraft.value.trim() ? ' · 含草稿' : ''
-      }${thinkFlag}`,
-      'color:#4f46e5;font-weight:600',
-      'color:inherit'
-    )
-    for (const m of messages) {
-      // eslint-disable-next-line no-console
-      console.log(
-        `%c[${m.role}] (${m.content.length} chars)`,
-        'color:#4f46e5;font-weight:600',
-        m.content
-      )
-    }
-    // eslint-disable-next-line no-console
-    console.groupEnd()
-
-    // 订阅流事件
-    subscribe()
-
-    // IPC 无法 structured-clone Vue 响应式代理，必须转成纯对象/纯数组。
-    // 用 JSON 序列化兜底（同时去掉 undefined 字段与函数），彻底切断 Proxy。
-    const plainConfig = JSON.parse(JSON.stringify(toRaw(config.value)!)) as AiServiceConfig
-    const plainMessages = JSON.parse(JSON.stringify(messages.map((m) => toRaw(m)))) as AiMessage[]
-
-    // 启动生成（主进程通过事件推流）
-    const res = await window.api.aiGenerate({
-      repoPath,
-      config: plainConfig,
-      messages: plainMessages
-    })
-    if (!res.ok) {
-      // error 事件通常会先到，这里兜底
-      if (phase.value === 'generating') {
-        error.value = res.error || '生成失败'
+    try {
+      // 取 diff（暂存优先，否则全量）
+      // 传 model 给主进程，用于按模型上下文长度动态推算 diff 总量上限
+      const cfgSnap = config.value
+      const modelForDiff = cfgSnap
+        ? cfgSnap.presetCustomModel
+          ? cfgSnap.model
+          : cfgSnap.presetModel
+        : undefined
+      // IPC 无法 structured-clone Vue 响应式数组（共性 Bug）：forceIncludePaths.value 仍是 Proxy，
+      // 跨 IPC 边界必须先转纯数组，否则报 "An object could not be cloned"。
+      const diffRes = await window.api.gitDiffForAi(repoPath, modelForDiff, [...forceIncludePaths.value])
+      if (!diffRes.ok) {
+        error.value = diffRes.error.message || '获取差异失败'
         phase.value = 'error'
+        return
       }
+      const { diff, truncated: t, source: src, omittedFiles: om } = diffRes.data
+      truncated.value = t
+      source.value = src
+      omittedFiles.value = om ?? []
+
+      if (!diff.trim()) {
+        error.value = '没有可生成的改动'
+        phase.value = 'error'
+        return
+      }
+
+      // 组装消息（truncated=true 时会在 system prompt 注入"仅基于已展示内容总结"告知）
+      const messages: AiMessage[] = buildMessages(
+        {
+          rules: prefs.value?.customRules || DEFAULT_RULES,
+          prefix: selectedPrefix.value?.label ?? null,
+          detailed: prefs.value?.detailed ?? true,
+          source: src,
+          userDraft: userDraft.value.trim() || null,
+          truncated: t
+        },
+        diff
+      )
+
+      // 调试用：在控制台打印完整 prompt（system + user），便于排查生成效果
+      // 主进程终端也有同样打印（AiService.streamGenerate）；此处 DevTools 可见。
+      const thinkFlag = cfgSnap?.thinking ? ` · thinking:${cfgSnap.thinkingEffort}` : ''
+      // eslint-disable-next-line no-console
+      console.groupCollapsed(
+        `%c[AI Prompt]%c ${messages.length} msgs · ${src} · diff ${diff.length} chars${
+          userDraft.value.trim() ? ' · 含草稿' : ''
+        }${thinkFlag}`,
+        'color:#4f46e5;font-weight:600',
+        'color:inherit'
+      )
+      for (const m of messages) {
+        // eslint-disable-next-line no-console
+        console.log(
+          `%c[${m.role}] (${m.content.length} chars)`,
+          'color:#4f46e5;font-weight:600',
+          m.content
+        )
+      }
+      // eslint-disable-next-line no-console
+      console.groupEnd()
+
+      // 订阅流事件
+      subscribe()
+
+      // IPC 无法 structured-clone Vue 响应式代理，必须转成纯对象/纯数组。
+      // 用 JSON 序列化兜底（同时去掉 undefined 字段与函数），彻底切断 Proxy。
+      const plainConfig = JSON.parse(JSON.stringify(toRaw(config.value)!)) as AiServiceConfig
+      const plainMessages = JSON.parse(JSON.stringify(messages.map((m) => toRaw(m)))) as AiMessage[]
+
+      // 启动生成（主进程通过事件推流）
+      const res = await window.api.aiGenerate({
+        repoPath,
+        config: plainConfig,
+        messages: plainMessages
+      })
+      if (!res.ok) {
+        // error 事件通常会先到，这里兜底
+        if (phase.value === 'generating') {
+          error.value = res.error || '生成失败'
+          phase.value = 'error'
+        }
+      } else if (phase.value === 'generating') {
+        // 启动成功但流事件尚未到达：挂上看门狗，防连接挂起导致一直转圈
+        startFirstChunkWatchdog()
+      }
+    } catch (e) {
+      // 任何意外异常都要兜住，绝不能卡在 generating 态转圈。
+      // 保留原始错误到控制台（便于排查），同时给出可读提示。
+      console.error('[generate] 生成失败:', e)
+      clearFirstChunkWatchdog()
+      if (flushTimer) {
+        clearTimeout(flushTimer)
+        flushTimer = null
+      }
+      message.value = buffer.value
+      const reason = e instanceof Error ? e.message : String(e)
+      error.value = reason.includes('could not be cloned')
+        ? '生成失败：参数无法序列化，请重试'
+        : `生成失败：${reason}`
+      phase.value = message.value.trim() ? 'editing' : 'error'
     }
   }
 
   async function abort(): Promise<void> {
+    clearFirstChunkWatchdog()
     await window.api.aiAbort()
     if (flushTimer) {
       clearTimeout(flushTimer)
@@ -360,6 +431,10 @@ export const useAiStore = defineStore('ai', () => {
   /**
    * 提交（可选推送）。
    * 成功 → 返回 { ok:true }；失败 → 返回 { ok:false, message }，由调用方弹窗（用户决策：弹窗确认）。
+   *
+   * loading 锁：committing / commitPushing 按 opts.push 分别置位，try/finally 复位，
+   * 互斥驱动 4 个提交按钮（idle/editing 各 2 个）的 loading 与禁用态。
+   * pre-commit 钩子可能耗时数秒甚至更长，避免用户误以为按钮无响应而重复点击。
    */
   async function commit(opts: { push: boolean }): Promise<{
     ok: boolean
@@ -368,46 +443,57 @@ export const useAiStore = defineStore('ai', () => {
   }> {
     const repoPath = project.active?.path
     if (!repoPath) return { ok: false, message: '未选择项目' }
+    // 并发锁：与 useGitStore.push/pull 一致的早期拒绝范式
+    if (committing.value || commitPushing.value) {
+      return { ok: false, message: '正在执行提交操作' }
+    }
     const msg = message.value.trim()
     if (!msg) return { ok: false, message: '提交信息为空' }
 
-    // commit
-    const commitRes = await window.api.gitCommit(repoPath, msg)
-    if (!commitRes.ok) {
-      return { ok: false, message: commitRes.error.message || '提交失败' }
-    }
-
-    // 提交成功，立即清空内存中的草稿和消息，让 UI 快速反馈
-    userDraft.value = ''
-    message.value = ''
-    if (draftTimer) {
-      clearTimeout(draftTimer)
-      draftTimer = null
-    }
-
-    // 刷新 git 状态（status + log + branch）
-    await git.refreshAll()
-
-    // 清掉当前项目的草稿缓存（持久化层）
-    const committedPid = project.activeId
-    if (committedPid) await clearDraft(committedPid)
-
-    if (!opts.push) {
-      return { ok: true, message: '已提交', commitHash: commitRes.data }
-    }
-
-    // push
-    const pushRes = await window.api.gitPush(repoPath)
-    if (!pushRes.ok) {
-      // commit 成功但 push 失败：返回特殊标记，调用方分别提示
-      return {
-        ok: true,
-        message: '已提交，但推送失败：' + (pushRes.error.message || '未知错误'),
-        commitHash: commitRes.data
+    if (opts.push) commitPushing.value = true
+    else committing.value = true
+    try {
+      // commit
+      const commitRes = await window.api.gitCommit(repoPath, msg)
+      if (!commitRes.ok) {
+        return { ok: false, message: commitRes.error.message || '提交失败' }
       }
+
+      // 提交成功，立即清空内存中的草稿和消息，让 UI 快速反馈
+      userDraft.value = ''
+      message.value = ''
+      if (draftTimer) {
+        clearTimeout(draftTimer)
+        draftTimer = null
+      }
+
+      // 刷新 git 状态（status + log + branch）
+      await git.refreshAll()
+
+      // 清掉当前项目的草稿缓存（持久化层）
+      const committedPid = project.activeId
+      if (committedPid) await clearDraft(committedPid)
+
+      if (!opts.push) {
+        return { ok: true, message: '已提交', commitHash: commitRes.data }
+      }
+
+      // push
+      const pushRes = await window.api.gitPush(repoPath)
+      if (!pushRes.ok) {
+        // commit 成功但 push 失败：返回特殊标记，调用方分别提示
+        return {
+          ok: true,
+          message: '已提交，但推送失败：' + (pushRes.error.message || '未知错误'),
+          commitHash: commitRes.data
+        }
+      }
+      await git.refreshAll()
+      return { ok: true, message: '已提交并推送', commitHash: commitRes.data }
+    } finally {
+      if (opts.push) commitPushing.value = false
+      else committing.value = false
     }
-    await git.refreshAll()
-    return { ok: true, message: '已提交并推送', commitHash: commitRes.data }
   }
 
   /* ---------- 切换项目清理 ---------- */
@@ -430,12 +516,33 @@ export const useAiStore = defineStore('ai', () => {
     truncated.value = false
     source.value = null
     omittedFiles.value = []
+    forceIncludePaths.value = []
   }
 
   /** 设置预填草稿（生成前的用户输入）。变更后 debounce 写盘。 */
   function setUserDraft(v: string): void {
     userDraft.value = v
     scheduleSaveDraft()
+  }
+
+  /* ---------- 强制包含（被截断文件） ---------- */
+  /**
+   * 切换某文件的「强制包含」状态。
+   * 仅对当前 omittedFiles 中非二进制文件有意义（二进制强制无效）；
+   * 但此处不校验 reason（允许任意路径切换，以兼容 omitted 列表刷新前的中间态）。
+   */
+  function toggleForceInclude(path: string): void {
+    const i = forceIncludePaths.value.indexOf(path)
+    if (i >= 0) {
+      forceIncludePaths.value = forceIncludePaths.value.filter((p) => p !== path)
+    } else {
+      forceIncludePaths.value = [...forceIncludePaths.value, path]
+    }
+  }
+
+  /** 查询某路径是否已被设为强制包含 */
+  function isForceIncluded(path: string): boolean {
+    return forceIncludePaths.value.includes(path)
   }
 
   /* ---------- 按项目的草稿/结果持久化 ---------- */
@@ -503,6 +610,7 @@ export const useAiStore = defineStore('ai', () => {
       clearTimeout(draftTimer)
       draftTimer = null
     }
+    clearFirstChunkWatchdog()
 
     // ---- 1. 离开旧项目 ----
     if (prevId) {
@@ -531,6 +639,7 @@ export const useAiStore = defineStore('ai', () => {
     truncated.value = false
     source.value = null
     omittedFiles.value = []
+    forceIncludePaths.value = []
     buffer.value = ''
 
     // ---- 3. 恢复新项目文本 ----
@@ -544,7 +653,8 @@ export const useAiStore = defineStore('ai', () => {
   return {
     // state
     config, prefs, configModalOpen, prefixModalOpen,
-    phase, message, error, truncated, source, userDraft, omittedFiles,
+    phase, message, error, truncated, source, userDraft, omittedFiles, forceIncludePaths,
+    committing, commitPushing,
     // getters
     hasConfig, isConfigured, selectedPrefix, selectedPrefixId, canGenerate,
     // init / 持久化
@@ -553,6 +663,8 @@ export const useAiStore = defineStore('ai', () => {
     addPrefix, removePrefix, selectPrefix, setPrefixes, toggleDetailed, updateRules, resetRules,
     // 生成
     generate, abort, regenerate, setUserDraft,
+    // 强制包含
+    toggleForceInclude, isForceIncluded,
     // 按项目草稿持久化
     scheduleSaveDraft, persistDraftNow, clearDraft, switchProject,
     // 提交

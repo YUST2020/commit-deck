@@ -202,22 +202,54 @@ function onCancel(): void {
   emit('update:show', false)
 }
 
-function onSave(): void {
-  if (!draft.value.apiKey.trim()) {
-    message.error('请填写 API Key')
+/**
+ * 校验当前 draft 配置是否完整可用。返回首个错误文案或 null。
+ * 保存与连通性测试共用，避免校验逻辑两处重复。
+ */
+function validateDraft(): string | null {
+  if (!draft.value.apiKey.trim()) return '请填写 API Key'
+  if (draft.value.provider === 'custom') {
+    if (!draft.value.baseUrl.trim()) return '请填写请求地址'
+    if (!draft.value.model.trim()) return '请填写模型 ID'
+  } else if (presetCustomModel.value && !draft.value.model.trim()) {
+    return '请填写自定义模型 ID'
+  }
+  return null
+}
+
+/** 连通性测试态（按钮 loading + 防重复点击） */
+const testing = ref(false)
+
+/**
+ * 用当前 draft 配置发起连通性测试。填完即可测，无需先保存。
+ * 跨 IPC 边界传参须转纯对象（去 Vue 响应式 Proxy），遵循 AGENTS.md 共性 bug 记录。
+ */
+async function onTest(): Promise<void> {
+  const err = validateDraft()
+  if (err) {
+    message.error(err)
     return
   }
-  if (draft.value.provider === 'custom') {
-    if (!draft.value.baseUrl.trim()) {
-      message.error('请填写请求地址')
-      return
+  testing.value = true
+  try {
+    const plainConfig = JSON.parse(JSON.stringify(draft.value)) as AiServiceConfig
+    const res = await window.api.testAiConnection(plainConfig)
+    if (res.ok) {
+      message.success('连接成功')
+    } else {
+      message.error(res.error || '连接失败')
     }
-    if (!draft.value.model.trim()) {
-      message.error('请填写模型 ID')
-      return
-    }
-  } else if (presetCustomModel.value && !draft.value.model.trim()) {
-    message.error('请填写自定义模型 ID')
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : '连接测试失败')
+  } finally {
+    testing.value = false
+  }
+}
+
+function onSave(): void {
+  const err = validateDraft()
+  if (err) {
+    message.error(err)
     return
   }
   const finalConfig: AiServiceConfig = {
@@ -374,10 +406,20 @@ function onSave(): void {
         </NForm>
       </div>
 
-      <!-- 固定底部 -->
+      <!-- 固定底部：左侧「测试连接」，右侧取消/保存 -->
       <div class="cfg__footer">
-        <NButton size="small" @click="onCancel">取消</NButton>
-        <NButton size="small" type="primary" @click="onSave">保存</NButton>
+        <NButton
+          size="small"
+          :loading="testing"
+          :disabled="testing"
+          @click="onTest"
+        >
+          测试连接
+        </NButton>
+        <div class="cfg__footer-right">
+          <NButton size="small" @click="onCancel">取消</NButton>
+          <NButton size="small" type="primary" @click="onSave">保存</NButton>
+        </div>
       </div>
     </div>
   </NModal>
@@ -400,11 +442,15 @@ function onSave(): void {
 }
 .cfg__footer {
   display: flex;
-  justify-content: flex-end;
-  gap: var(--sp-2);
+  align-items: center;
+  justify-content: space-between;
   padding: var(--sp-3) var(--sp-6);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
+}
+.cfg__footer-right {
+  display: flex;
+  gap: var(--sp-2);
 }
 .cfg__inline {
   display: inline-flex;

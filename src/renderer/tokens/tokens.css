@@ -71,6 +71,22 @@
   --dur-slow: 260ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 
+  /* 阴影（由 tokens.ts 的 shadow 派生，业务用 var(--shadow-*)） */
+  --shadow-xs: 0 1px 2px rgba(6, 9, 13, 0.04);
+  --shadow-sm: 0 1px 3px rgba(6, 9, 13, 0.06), 0 1px 2px rgba(6, 9, 13, 0.04);
+  --shadow-md: 0 4px 12px rgba(6, 9, 13, 0.08), 0 2px 4px rgba(6, 9, 13, 0.04);
+  --shadow-lg: 0 12px 28px rgba(6, 9, 13, 0.12), 0 4px 8px rgba(6, 9, 13, 0.06);
+  --shadow-focus: 0 0 0 3px rgba(99, 102, 241, 0.22);
+  /* 注意：--shadow-window 是主题感知的（见下方 light/dark 语义块），
+     明/暗桌面需要不同强度的投影勾勒窗口边界。
+     blur 受 --win-gap 约束，过大会被窗口外缘裁切。 */
+
+  /* 透明无边框窗口：app-root 外侧预留的透明边带，
+     供窗口描边(outline)与投影(box-shadow)向外渲染，否则会被窗口外缘裁掉。
+     取值需 ≥ 最外层 --shadow-window 的 blur，否则阴影会撞上窗口的矩形外缘被硬切，
+     视觉上呈现"外部阴影是直角"的错觉（实际 box-shadow 本就跟随 border-radius）。 */
+  --win-gap: 14px;
+
   /* 布局尺寸 */
   --sider-width: 240px;
   --sider-collapsed-width: 60px;
@@ -107,6 +123,14 @@
   --avatar-5-bg: #fce7f3; --avatar-5-fg: #db2777; /* 粉 */
   --avatar-6-bg: #ede9fe; --avatar-6-fg: #7c3aed; /* 紫 */
   --avatar-7-bg: #ffedd5; --avatar-7-fg: #ea580c; /* 橙 */
+
+  /* 窗口投影（明色）：偏移全 0，向 4 周均匀扩散（辉光式，而非"光从上方"的方向性投影）。
+     两层叠加让边缘渐变更柔和，避免单层在 alpha 边缘有可见的硬切。
+     blur 主体 < --win-gap(14px)，确保辉光能完整落在透明边带内呈现圆角，
+     否则会被窗口矩形外缘裁掉导致"外部阴影是直角"的错觉。 */
+  --shadow-window:
+    0 0 12px rgba(6, 9, 13, 0.16),
+    0 0 4px rgba(6, 9, 13, 0.08);
   color-scheme: light;
 }
 
@@ -136,6 +160,12 @@
   --avatar-5-bg: rgba(219, 39, 119, 0.18);  --avatar-5-fg: #f9a8d4; /* 粉 */
   --avatar-6-bg: rgba(124, 58, 237, 0.18);  --avatar-6-fg: #c4b5fd; /* 紫 */
   --avatar-7-bg: rgba(234, 88, 12, 0.18);   --avatar-7-fg: #fdba74; /* 橙 */
+
+  /* 窗口投影（暗色）：偏移全 0，向 4 周均匀扩散。
+     深色桌面下投影不显眼，用更高黑度提高对比，blur < --win-gap(14px) 保证圆角完整。 */
+  --shadow-window:
+    0 0 14px rgba(0, 0, 0, 0.55),
+    0 0 4px rgba(0, 0, 0, 0.35);
   color-scheme: dark;
 }
 
@@ -160,7 +190,8 @@ body {
   font-size: var(--fs-base);
   line-height: 1.5;
   color: var(--text-primary);
-  background-color: var(--bg-app);
+  /* 透明窗口：body 背景交由 .app-root 承载，否则会填满直角窗口区域盖住外圆角 */
+  background-color: transparent;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -195,13 +226,13 @@ textarea,
   background: var(--text-tertiary);
 }
 
-/* 焦点可见性（无障碍）：仅键盘导航显示 outline，鼠标点击不留框 */
-:focus {
-  outline: none;
-}
+/* 焦点可见性：全局关闭焦点 outline（含键盘 :focus-visible）。
+   // TODO(agent): 需确认 —— 这会牺牲键盘 Tab 导航的视觉反馈（无障碍性下降），
+   交互元素目前已通过 hover/选中态/颜色变化提供反馈。若后续需要恢复，把下方
+   `:focus-visible` 改回 `outline: 2px solid var(--brand); outline-offset: 2px;`。 */
+:focus,
 :focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: 2px;
+  outline: none;
 }
 
 /* 去掉原生 button 默认背景/边框干扰，统一由组件或自定义样式控制 */
@@ -225,19 +256,33 @@ a {
 }
 
 /* —— Naive UI 组件点击残留边框清理 —— */
-/* 鼠标点击后不让 Naive 按钮留下胶囊 focus ring；仅键盘 :focus-visible 保留 */
-.n-button:not(:focus-visible):focus,
+/* 全局 :focus-visible 已关闭，这里统一兜底清理 Naive button 在 focus 时的
+   颜色变化之外的任何外阴影/outline，避免点击后留下胶囊 ring。 */
+.n-button:focus,
 .n-button *:focus {
   box-shadow: none !important;
   outline: none !important;
 }
-.n-float-button:not(:focus-visible):focus {
+.n-float-button:focus {
   box-shadow: none !important;
 }
 /* 自定义图标按钮（lucide 包裹的 button）也不留框 */
-button:focus:not(:focus-visible) {
+button:focus {
   outline: none;
   box-shadow: none;
+}
+/* —— NRadioButton 点击残留 focus 阴影清理 —— */
+/* RadioButton 渲染为 <label class="n-radio-button">，内部 input focus 时由 use-radio 的 focusRef 给 label 加
+   .n-radio-button--focus，再由 .n-radio-button--focus:not(:active) .n-radio-button__state-border
+   { box-shadow: var(--n-button-box-shadow-focus) } 画出那圈外阴影（light.mjs 的 buttonBoxShadowFocus =
+   inset 1px 主色 + 0 0 0 2px 主色@30%）。点别处 blur 后 class 移除、阴影消失——即"点击留一圈阴影"。
+   这里把该 CSS 变量收敛为仅 inset 描边，根除外圈光晕；选中态走 --n-button-box-shadow-active 不受影响。
+   Radio（非 button 形态）同理用 --n-box-shadow-focus。 */
+.n-radio-button.n-radio-button--focus .n-radio-button__state-border {
+  --n-button-box-shadow-focus: inset 0 0 0 1px var(--brand);
+}
+.n-radio.n-radio--focus .n-radio__dot {
+  --n-box-shadow-focus: inset 0 0 0 1px var(--brand);
 }
 
 /* —— 过渡动画基础（简约现代风）—— */

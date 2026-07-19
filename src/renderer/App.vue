@@ -19,6 +19,7 @@ import { useProjectStore } from '@/stores/useProjectStore'
 import { useGitStore } from '@/stores/useGitStore'
 import { useAiStore } from '@/stores/useAiStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
+import { useCodeReviewStore } from '@/stores/useCodeReviewStore'
 import ProjectSider from '@/components/ProjectSider.vue'
 import AppHeader from '@/components/AppHeader.vue'
 import WindowControls from '@/components/WindowControls.vue'
@@ -32,6 +33,7 @@ const project = useProjectStore()
 const git = useGitStore()
 const ai = useAiStore()
 const settings = useSettingsStore()
+const review = useCodeReviewStore()
 
 function toggleTheme() {
   setMode(isDark.value ? 'light' : 'dark')
@@ -67,11 +69,13 @@ onBeforeUnmount(() => {
 //   生成中切走会自动 abort 并丢弃部分结果。
 // - git.switchProject()：刷新 git 状态，同时驱动 WorkspaceView 的
 //   keyed <Transition> 做淡入淡出过渡，避免「卸载→转圈→重挂」的闪屏中间态。
+// - review.switchProject()：中断在跑的代码审查 + 清空结果（按项目隔离）。
 watch(
   () => project.activeId,
   (id, prevId) => {
     if (id && project.active) {
       void ai.switchProject(prevId, id)
+      void review.switchProject()
       git.switchProject()
     }
   }
@@ -140,7 +144,25 @@ watch(
 
 <style scoped>
 .app-root {
-  height: 100vh;
+  /* 透明无边框窗口：四周留出 --win-gap 透明边带，让窗口描边与投影有地方渲染。
+     高度随之收缩，避免 100vh 撑满窗口外缘把投影裁掉。 */
+  height: calc(100vh - var(--win-gap) * 2);
+  width: calc(100vw - var(--win-gap) * 2);
+  margin: var(--win-gap);
+  /* 窗口外圆角：透明窗口下，圆角以外区域露出桌面。
+     overflow:hidden 裁剪内部背景到圆角范围内。 */
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  background: var(--bg-app);
+  /* 窗口描边：明色下用 --border-strong 形成可见轮廓，暗色下用 --border 与深桌面区分。
+     outline 跟随 border-radius 画出圆角描边，box-shadow 无法承担描边时由它补位。 */
+  outline: var(--bw-thin) solid var(--border-strong);
+  outline-offset: -1px;
+  /* 窗口投影：主题感知（见 tokens.css 的 --shadow-window）。
+     偏移全 0，向 4 周均匀扩散，跟随 border-radius 形成圆角辉光。
+     --win-gap 需 ≥ shadow blur，否则会被窗口外缘的硬矩形裁切，
+     让外部阴影看起来是直角。 */
+  box-shadow: var(--shadow-window);
 }
 
 .app-header {
@@ -170,7 +192,10 @@ watch(
 }
 
 .app-content {
-  height: calc(100vh - var(--header-height));
+  /* 显式高度撑满主区域（主 NLayout 非 flex 容器，不能靠 flex:1）。
+     app-root 已收缩 2×--win-gap，这里同步减去以保持高度链一致，
+     否则 content 会高出 app-root 触发超长滚动。 */
+  height: calc(100vh - var(--header-height) - var(--win-gap) * 2);
   background: var(--bg-app);
 }
 </style>

@@ -8,8 +8,9 @@ import {
   useMessage,
   useDialog
 } from 'naive-ui'
-import { Plus, Trash2, FolderPlus, FolderOpen, GitCommitHorizontal } from 'lucide-vue-next'
+import { Plus, Trash2, FolderPlus, FolderOpen } from 'lucide-vue-next'
 import { computed } from 'vue'
+import AppIcon from '@/components/AppIcon.vue'
 import { useProjectStore } from '@/stores/useProjectStore'
 import { useGitStore } from '@/stores/useGitStore'
 
@@ -102,12 +103,12 @@ const hasProjects = computed(() => projects.value.length > 0)
     <div class="sider__brand">
       <NTooltip v-if="collapsed" placement="right">
         <template #trigger>
-          <div class="sider__logo"><GitCommitHorizontal :size="18" /></div>
+          <div class="sider__logo"><AppIcon :size="22" /></div>
         </template>
-        Git Commit
+        CommitDeck
       </NTooltip>
-      <div v-else class="sider__logo"><GitCommitHorizontal :size="18" /></div>
-      <span v-if="!collapsed" class="sider__title">Git Commit</span>
+      <div v-else class="sider__logo"><AppIcon :size="22" /></div>
+      <span v-if="!collapsed" class="sider__title">CommitDeck</span>
     </div>
     <!-- 有项目：列表 -->
     <template v-if="hasProjects">
@@ -207,7 +208,8 @@ const hasProjects = computed(() => projects.value.length > 0)
 
 <style scoped>
 .sider {
-  height: 100vh;
+  /* app-root 已收缩 2×--win-gap，侧栏高度同步减去，保持与右侧主区域顶部对齐。 */
+  height: calc(100vh - var(--win-gap) * 2);
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
@@ -265,8 +267,6 @@ const hasProjects = computed(() => projects.value.length > 0)
   border-radius: var(--r-md);
   display: grid;
   place-items: center;
-  color: var(--text-on-brand);
-  background: var(--brand);
   flex-shrink: 0;
   /* logo 在拖拽行内：取消拖拽，恢复 hover 缩放等交互 */
   -webkit-app-region: no-drag;

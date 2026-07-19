@@ -11,6 +11,7 @@ import type {
   AiServiceConfig,
   AppSettings,
   BranchInfo,
+  ChangedFilesForReview,
   DiffForAi,
   FileChange,
   GitSyncResult,
@@ -45,23 +46,35 @@ export interface AppApi {
   gitPull: (repoPath: string) => Promise<GResult<GitSyncResult>>
   gitUndoCommit: (repoPath: string, count: number) => Promise<GResult<null>>
   // 差异聚合（供 AI：暂存优先，否则全量；含大文件保护；model 用于按上下文长度动态推算总量上限）
-  gitDiffForAi: (repoPath: string, model?: string) => Promise<GResult<DiffForAi>>
+  // forceIncludePaths：用户指定「强制包含」的文件路径，优先占用配额、尽量发全文（二进制/产物除外）
+  // onlyPaths：代码审查文件选择器选中的路径白名单（仅保留这些文件的 diff；为空=不过滤）
+  gitDiffForAi: (repoPath: string, model?: string, forceIncludePaths?: string[], onlyPaths?: string[]) => Promise<GResult<DiffForAi>>
+  // 代码审查文件选择器取数：列出可审查的改动文件（含 contentOmitted 标记）
+  gitChangedFiles: (repoPath: string) => Promise<GResult<ChangedFilesForReview>>
   // AI 生成（流式）
+  // task：复用同一流式传输通道承载多种任务（默认 'commit'；'review' 走独立事件通道）
   aiGenerate: (input: {
     repoPath: string
     config: AiServiceConfig
     messages: AiMessage[]
+    task?: 'commit' | 'review'
   }) => Promise<{ ok: boolean; error?: string }>
   aiAbort: () => Promise<void>
   onAiChunk: (cb: (delta: string) => void) => () => void
   onAiDone: (cb: () => void) => () => void
   onAiError: (cb: (err: { message: string }) => void) => () => void
+  // 代码审查专用流事件（与 commit 流解耦，互不污染）
+  onAiReviewChunk: (cb: (delta: string) => void) => () => void
+  onAiReviewDone: (cb: () => void) => () => void
+  onAiReviewError: (cb: (err: { message: string }) => void) => () => void
   // AI 配置 / 偏好（持久化）
   getAiService: () => Promise<AiServiceConfig>
   setAiService: (cfg: AiServiceConfig) => Promise<void>
   getAiPrefs: () => Promise<AiPrefs>
   setAiPrefs: (prefs: AiPrefs) => Promise<void>
   resetAiRules: () => Promise<string>
+  // 连通性测试：用当前配置发最小请求验证可达性（无需先保存配置）
+  testAiConnection: (config: AiServiceConfig) => Promise<{ ok: boolean; error?: string }>
   // 偏好（UI 偏好持久化）
   getSiderCollapsed: () => Promise<boolean>
   setSiderCollapsed: (collapsed: boolean) => Promise<void>

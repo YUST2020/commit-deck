@@ -5,3 +5,4 @@ out
 *.log
 .vite
 release
+package-lock.json

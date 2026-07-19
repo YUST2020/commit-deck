@@ -1,5 +1,5 @@
-appId: com.git-ai-commit-message.GitAiCommitMessage
-productName: GitAiCommitMessage
+appId: com.commit-deck.CommitDeck
+productName: CommitDeck
 directories:
   output: release
   buildResources: build

@@ -24,7 +24,7 @@ const startSilent = process.argv.includes('--hidden')
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1200,
+    width: 1300,
     height: 780,
     minWidth: 960,
     minHeight: 640,
@@ -32,8 +32,14 @@ function createWindow(): void {
     autoHideMenuBar: true,
     // 移除系统默认标题栏（含最小化/关闭按钮），改由渲染进程自定义控件
     frame: false,
-    title: 'Git Commit',
-    backgroundColor: '#0e1116',
+    title: 'CommitDeck',
+    // 透明窗口：让渲染层外圆角以外的区域透明露出桌面。
+    // 注意：transparent 窗口不能设置 backgroundColor，故移除。
+    transparent: true,
+    // 保留系统阴影（Windows 下透明窗口仍可有原生投影），增强浮起感
+    hasShadow: true,
+    // Windows 任务栏 / 标题栏图标：显式指定，避免显示默认 Electron 图标
+    icon: join(__dirname, '../../build/icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,

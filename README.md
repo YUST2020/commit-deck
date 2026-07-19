@@ -1,70 +1,100 @@
-# GitAiCommitMessage (GACM)
+<div align="center">
+  <img src="build/icon.png" alt="CommitDeck Logo" width="120" />
+  <h1>CommitDeck</h1>
+  <p><b>AI 驱动的本地 Git 提交助手 · Commit Message 生成 & Code Review</b></p>
 
-🤖 **AI 驱动的 Git 提交信息助手** —— 让每一次提交都专业、规范、高效。
+  <p align="center">
+    <img src="https://img.shields.io/badge/Electron-v30+-blue?style=flat-square&logo=electron" alt="Electron" />
+    <img src="https://img.shields.io/badge/Vue-3.x-green?style=flat-square&logo=vuedotjs" alt="Vue" />
+    <img src="https://img.shields.io/badge/Vite-5.x-purple?style=flat-square&logo=vite" alt="Vite" />
+    <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat-square" alt="License" />
+  </p>
 
-基于 Electron + Vue 3 开发的桌面端 Git 助手，深度集成 AI 模型，自动分析代码变更并生成符合 Conventional Commits 规范的提交信息。
+  <img src="public/home.png" alt="CommitDeck Preview" width="100%" />
 
-## 🌟 核心特性
 
-- **本地优先**：所有 Git 操作均在本地执行，安全可靠。
-- **智能分析**：一键分析 Staged 文件的 Diff，自动生成高质量提交说明。
-- **流式输出**：AI 生成过程实时预览，所见即所得。
-- **多模型支持**：支持 DeepSeek、GLM 等主流大模型。
-- **一键提交**：确认信息后可直接完成 Commit 和 Push 操作。
 
-## 🚀 快速开始
+## ✨ 核心特性
 
-### 安装与运行
+### 🚀 Commit Message 生成
+- **流式生成**：一键分析暂存区 Diff，流式输出符合 Conventional Commits 规范的提交信息。
+- **自定义前缀**：支持维护项目专属的前缀列表，按需快速选择。
+- **规则引擎**：自由编辑 AI 生成规则，完美适配团队规范。
+- **智能截断**：自动折叠大文件、二进制文件，在模型上下文预算内智能截断 Diff。
+- **一键操作**：确认后支持直接 Commit 或 Commit + Push。
 
-1. **克隆仓库**
-   ```bash
-   git clone https://github.com/your-username/git-ai-commit-message.git
-   cd git-ai-commit-message
-   ```
+### 🔍 AI Code Review
+- **按需评审**：独立评审通道，可挑选特定变更文件进行针对性评审。
+- **结构化报告**：Markdown 格式报告，包含总体评价及 `🔴 严重` / `🟡 建议` / `🔵 可选` 三级反馈。
+- **便捷交互**：支持一键重试与复制评审结果。
 
-2. **安装依赖**
-   ```bash
-   npm install
-   ```
+### 📦 本地优先 & 多项目管理
+- **系统集成**：所有 Git 操作均在本地执行，复用系统 SSH 与 Git Credential Manager。
+- **多项目并行**：侧边栏快速切换不同仓库，独立配置每个项目的 AI 偏好。
+- **智能同步**：Pull / Push 自动处理 rebase，冲突时自动保护工作区。
+- **极致体验**：支持全局快捷键唤起（默认 `Alt+Shift+G`）、系统托盘、开机自启。
 
-3. **启动开发环境**
-   ```bash
-   npm run dev
-   ```
+---
 
-4. **打包应用**
-   ```bash
-   npm run build:win  # Windows
-   npm run build:mac  # macOS
-   ```
+## ⚖️ 为什么选择 CommitDeck？
 
-### 使用流程
+Cursor、Trae 等 IDE 自带 AI 能力，但仍有很多不足：
 
-1. **添加项目**：点击左侧侧边栏的“添加项目”，选择你的 Git 仓库目录。
-2. **暂存文件**：在工作台中查看文件变动，勾选并“暂存”需要提交的文件。
-3. **生成信息**：点击右侧 AI 面板的“生成提交信息”按钮。
-4. **确认提交**：预览 AI 生成的内容，如有需要可手动微调，最后点击“确认提交”。
+| 痛点场景 | 通用 AI 编程工具 | CommitDeck |
+| :--- | :--- | :--- |
+| **提交前缀不可控** | 仅遵循固定规范，难以根据公司规范快速生成关联前缀（如 `TASK#123`，`BUGFIX#123`） | **完全自定义**，支持按项目记忆前缀列表 |
+| **生成规则不可改** | 规则内置，无法适配特定团队规范 | **规则全开放**，支持自由定义 Prompt |
+| **模型选择受限** | 绑定厂商模型，无法切换或私有部署 | **协议全兼容**，支持 GLM / DeepSeek 及任意 OpenAI 端点 |
+| **独立 GUI 缺失** | 必须在 IDE 内操作，缺少独立管理界面 | **独立桌面端**，支持全局快捷键与多项目管理 |
 
-## 🤖 模型推荐与对比
+---
 
-本项目支持多种 AI 模型，你可以根据需求在设置中配置：
+## 🤖 AI 模型配置
 
-| 模型 | 速度 | 费用 | 评价 |
-| --- | --- | --- | --- |
-| **DeepSeek V3/V4** | ⚡ 极快 | 约 0.01 元 / 次 | **推荐**。响应速度极快，逻辑理解能力强。 |
-| **GLM 4.7 Flash** | 🐢 较慢 | 🎁 免费 | 适合低频使用或预算有限的用户，但生成等待时间相对较长。 |
+支持在「设置 → AI 服务」中灵活配置：
 
-> *注：费用估算基于当前 API 价格及平均 Diff 长度。*
+- **智谱 GLM**：预设 BigModel 端点，推荐 `glm-4-flash`。
+- **DeepSeek**：支持 OpenAI / Anthropic 双协议，推荐 `deepseek-chat`。
+- **自定义端点**：支持任意兼容 OpenAI / Anthropic 协议的服务（含私有部署）。
 
-## 🛠️ 技术栈
+---
 
-- **运行时**: Electron 30+
-- **前端框架**: Vue 3.4+ + TypeScript
-- **UI 组件**: Naive UI
-- **状态管理**: Pinia
-- **Git 操作**: simple-git
-- **构建工具**: Vite + electron-vite
+## 🛠️ 本地开发
 
-## 📄 开源协议
+**环境要求**
+- Node.js ≥ 18
+- pnpm (推荐)
 
-[MIT License](LICENSE)
+```bash
+# 克隆仓库
+git clone https://github.com/<your-username>/commit-deck.git
+cd commit-deck
+
+# 安装依赖
+pnpm install
+
+# 启动开发环境
+pnpm dev
+
+# 构建安装包
+pnpm build:win    # Windows
+pnpm build:mac    # macOS
+pnpm build:linux  # Linux
+```
+
+---
+
+## 🗺️ Roadmap
+
+- [x] AI Commit Message 流式生成
+- [x] 自定义前缀 / 规则 / 模型端点
+- [x] AI Code Review 结构化报告
+- [x] 多项目管理与基础 Git 操作
+- [ ] 代码冲突图形化合并引导
+- [ ] 更多 AI 提效工具扩展
+
+---
+
+## 📄 许可证
+
+本项目采用 [MIT License](LICENSE) 许可协议。

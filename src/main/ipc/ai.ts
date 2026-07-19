@@ -7,11 +7,26 @@
  *   - 渲染进程 invoke('ai:abort') 中断当前流
  *
  * 每个 webContents（窗口）维护一个独立的 AbortController，互不干扰。
+ *
+ * 任务分发（task）：同一套流式传输通道承载多种任务（生成 commit message / 代码审查）。
+ * 入参 payload.task 决定推送到哪一组事件：
+ *   - 'commit'（默认）→ 'ai:chunk' / 'ai:done' / 'ai:error'（由 useAiStore 订阅）
+ *   - 'review'        → 'ai:review:chunk' / 'ai:review:done' / 'ai:review:error'（由 useCodeReviewStore 订阅）
+ * 这样两个任务的流事件彻底解耦，互不污染对方 buffer；
+ * 单流约束仍由 controllers Map 保证（同窗口任意时刻只能跑一个任务，新任务启动会 abort 旧任务）。
  */
+type AiTask = 'commit' | 'review'
+
+/** 根据任务类型解析该次流应推送的事件名三元组 */
+function eventsFor(task: AiTask): { chunk: string; done: string; error: string } {
+  return task === 'review'
+    ? { chunk: 'ai:review:chunk', done: 'ai:review:done', error: 'ai:review:error' }
+    : { chunk: 'ai:chunk', done: 'ai:done', error: 'ai:error' }
+}
 import path from 'path'
 import { ipcMain, type WebContents } from 'electron'
 import type { AiMessage, AiServiceConfig } from '@shared/index'
-import { streamGenerate, validateConfig } from '../services/AiService'
+import { streamGenerate, testConnection, validateConfig } from '../services/AiService'
 
 /** 校验路径必须是绝对路径 */
 function assertValidPath(p: unknown): asserts p is string {
@@ -32,7 +47,7 @@ export function registerAiIpc(): void {
     'ai:generate',
     async (
       e,
-      payload: { repoPath: unknown; config: unknown; messages: unknown }
+      payload: { repoPath: unknown; config: unknown; messages: unknown; task?: unknown }
     ) => {
       try {
         assertValidPath(payload.repoPath)
@@ -40,6 +55,8 @@ export function registerAiIpc(): void {
         const messages = payload.messages as AiMessage[]
         if (!config || typeof config !== 'object') throw new Error('AI 配置缺失')
         if (!Array.isArray(messages)) throw new Error('messages 必须是数组')
+        const task: AiTask = payload.task === 'review' ? 'review' : 'commit'
+        const ev = eventsFor(task)
 
         // 预检
         const err = validateConfig(config)
@@ -60,19 +77,19 @@ export function registerAiIpc(): void {
           await streamGenerate(config, messages, {
             signal: controller.signal,
             onChunk: (delta) => {
-              if (!sender.isDestroyed()) sender.send('ai:chunk', delta)
+              if (!sender.isDestroyed()) sender.send(ev.chunk, delta)
             }
           })
-          if (!sender.isDestroyed()) sender.send('ai:done')
+          if (!sender.isDestroyed()) sender.send(ev.done)
           return { ok: true as const }
         } catch (streamErr) {
           // 用户主动中断（AbortError）→ 视为 done 而非 error
           if (controller.signal.aborted) {
-            if (!sender.isDestroyed()) sender.send('ai:done')
+            if (!sender.isDestroyed()) sender.send(ev.done)
             return { ok: true as const }
           }
           const msg = streamErr instanceof Error ? streamErr.message : '生成失败'
-          if (!sender.isDestroyed()) sender.send('ai:error', { message: msg })
+          if (!sender.isDestroyed()) sender.send(ev.error, { message: msg })
           return { ok: false as const, error: msg }
         } finally {
           clearController(sender)
@@ -89,5 +106,23 @@ export function registerAiIpc(): void {
     const controller = controllers.get(e.sender)
     if (controller) controller.abort()
     return
+  })
+
+  // 连通性测试：用最小非流式请求验证配置可达。一次性 invoke，无流事件，
+  // 不进 controllers map（与 ai:generate 区分）。
+  // 入参直接为 config（preload 透传 testAiConnection(config)）。
+  ipcMain.handle('ai:test', async (_e, config: unknown) => {
+    try {
+      if (!config || typeof config !== 'object') {
+        return { ok: false as const, error: 'AI 配置缺失' }
+      }
+      const err = validateConfig(config as AiServiceConfig)
+      if (err) return { ok: false as const, error: err }
+      await testConnection(config as AiServiceConfig)
+      return { ok: true as const }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '连接测试失败'
+      return { ok: false as const, error: msg }
+    }
   })
 }

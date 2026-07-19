@@ -17,7 +17,8 @@ import {
   commit as gitCommitFn,
   push as gitPushFn,
   pull as gitPullFn,
-  undoCommit as gitUndoCommitFn
+  undoCommit as gitUndoCommitFn,
+  listChangedFilesForReview
 } from '../services/GitService'
 import { aggregateDiffForAi } from '../services/DiffAggregator'
 
@@ -112,10 +113,24 @@ export function registerGitIpc(): void {
     return guard(() => gitPullFn(repoPath))
   })
 
-  ipcMain.handle('git:diffForAi', async (_e, repoPath: unknown, model?: unknown) => {
+  ipcMain.handle('git:diffForAi', async (_e, repoPath: unknown, model?: unknown, forceIncludePaths?: unknown, onlyPaths?: unknown) => {
     assertValidPath(repoPath)
     const m = typeof model === 'string' ? model : undefined
-    return guard(() => aggregateDiffForAi(repoPath, m))
+    // forceIncludePaths 必须是字符串数组（可为空）；渲染进程可能传 ref/array，这里校验后转纯数组
+    const force = Array.isArray(forceIncludePaths)
+      ? forceIncludePaths.filter((p): p is string => typeof p === 'string')
+      : []
+    // onlyPaths：代码审查文件选择器选中的路径白名单（可为空=不过滤）；同样校验为纯字符串数组
+    const only = Array.isArray(onlyPaths)
+      ? onlyPaths.filter((p): p is string => typeof p === 'string')
+      : []
+    return guard(() => aggregateDiffForAi(repoPath, m, force, only))
+  })
+
+  // 代码审查文件选择器取数：列出可审查的改动文件（含 contentOmitted 标记）
+  ipcMain.handle('git:changedFiles', async (_e, repoPath: unknown) => {
+    assertValidPath(repoPath)
+    return guard(() => listChangedFilesForReview(repoPath))
   })
 
   ipcMain.handle('git:undoCommit', async (_e, repoPath: unknown, count: unknown) => {

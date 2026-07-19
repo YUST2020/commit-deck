@@ -220,3 +220,29 @@ export interface GitSyncResult {
   /** 失败时的友好中文文案（可直接展示给用户） */
   message?: string
 }
+
+/**
+ * 供「代码审查文件选择器」用的单个改动文件信息。
+ * 与 DiffAggregator 的 OmittedFile 规则同源：contentOmitted=true 表示该文件内容
+ * 已被规则折叠（二进制/产物/锁），审查无意义，选择器中应禁用勾选。
+ */
+export interface ChangedFileInfo {
+  /** 仓库相对路径 */
+  path: string
+  /** 文件变更状态（与 FileChange.status 语义一致） */
+  status: FileStatus
+  /** 是否已暂存 */
+  staged: boolean
+  /** 内容是否会被规则折叠（二进制/产物/锁文件） */
+  contentOmitted: boolean
+  /** 折叠原因（contentOmitted=true 时给出，用于选择器徽标文案） */
+  omitReason?: 'binary' | 'generated'
+}
+
+/** 代码审查文件列表（供选择器构建树） */
+export interface ChangedFilesForReview {
+  /** 来源：暂存改动 or 全量改动（与 DiffForAi.source 同源判断） */
+  source: 'staged' | 'all'
+  /** 改动文件清单 */
+  files: ChangedFileInfo[]
+}

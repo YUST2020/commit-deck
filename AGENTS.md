@@ -4,7 +4,7 @@
 
 ## 项目
 
-- **应用**：Git Commit —— AI 驱动的 Git 提交信息桌面助手
+- **应用**：CommitDeck —— AI 驱动的 Git 提交信息桌面助手
 - **技术栈**：Electron + Vue 3 + Vite + TypeScript + Naive UI + Pinia + Tailwind CSS v4
 - **设计风格**：简约、现代、统一。冷调中性色 + 靛蓝主色，低饱和、小圆角、轻阴影。
 
