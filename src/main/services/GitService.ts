@@ -152,17 +152,40 @@ export async function getStatus(repoPath: string): Promise<FileChange[]> {
     // （core.quotepath），这里统一还原为真实 UTF-8 字符串，确保 UI 正确显示中文
     const realPath = decodeGitPath(f.path)
     const realFrom = f.from ? decodeGitPath(f.from) : ''
-    const displayPath = realFrom ? `${realFrom} → ${realPath}` : realPath
+
+    // path 字段统一用新路径（realPath），可直接作为 git pathspec；
+    // rename 的旧路径放进 renamedFrom 供 UI 展示。
+    // （旧实现把暂存态 path 写成「old → new」形式，导致 stage/unstage/diff
+    //   拿到含箭头的字符串当 pathspec，git 静默匹配失败。）
+    const renameFrom = realFrom || undefined
 
     // 已暂存版本（index 与 HEAD 有差异）
     if (isStagedInIndex) {
-      changes.push({ path: displayPath, status: mapStatus(code, true), staged: true })
+      changes.push({
+        path: realPath,
+        status: mapStatus(code, true),
+        staged: true,
+        renamedFrom: renameFrom
+      })
     }
     // 工作区版本（index 与工作树有差异，或未跟踪）
+    //
+    // 判定规则：只要工作区码 wtCode 不是空格（即工作树相对 index 有改动），
+    // 就单列一条未暂存条目——与 git 自己定义「unstaged changes」的口径一致，
+    // 与 indexCode 是否相等无关。
+    //
+    // 旧实现多加了 `&& wtCode !== indexCode` 条件，导致「先暂存、又继续改」
+    // 这种 `MM`（index 与工作树都是 M）场景被误判为「两态相等、跳过」，
+    // 文件只出现在已暂存区、未暂存区丢失。`AM` 等组合同理被漏。
     if (wtCode === '?') {
       changes.push({ path: realPath, status: 'untracked', staged: false })
-    } else if (wtCode !== ' ' && wtCode !== indexCode) {
-      changes.push({ path: realPath, status: mapStatus(code, false), staged: false })
+    } else if (wtCode !== ' ') {
+      changes.push({
+        path: realPath,
+        status: mapStatus(code, false),
+        staged: false,
+        renamedFrom: renameFrom
+      })
     }
   }
   return changes
@@ -357,7 +380,59 @@ export async function getDiffFile(
   if (staged) {
     return git.diff(['--cached', '--', file])
   }
-  return git.diff(['--', file])
+  const diff = await git.diff(['--', file])
+  if (diff) return diff
+  // 工作区态空 diff：若该文件未被 git 跟踪，读盘合成「整文件新增」diff，
+  // 让 DiffViewer 能展示未跟踪文件的完整内容（与 AI 聚合路径行为一致）。
+  const tracked = await git.raw(['ls-files', '--', file])
+  if (tracked.trim()) return diff
+  return synthesizeUntrackedDiff(repoPath, file)
+}
+
+/**
+ * 为未跟踪文件合成类 unified diff（全部行作为新增）。
+ * - 二进制 / 产物 / 锁文件 → 仅给出折叠说明行（复用 classifyOmit，与 AI 路径同规则）
+ * - 读盘失败 / 非普通文件 → 给出可读性提示
+ * - 含 NUL 字节 → 视为二进制
+ * - 其余 → 按行前缀 '+' 输出全文
+ * 仅用于 UI DiffViewer 展示，不走 AI 配额 / 截断逻辑。
+ */
+function synthesizeUntrackedDiff(repoPath: string, file: string): string {
+  const header =
+    `diff --git a/${file} b/${file}\n` +
+    `new file mode 100644\n` +
+    `--- /dev/null\n` +
+    `+++ b/${file}\n`
+  const noteDiff = (note: string): string =>
+    header + `@@ -0,0 +1,1 @@\n+[${note}]\n`
+
+  const { omit, reason } = classifyOmit(file)
+  if (omit && reason) return noteDiff(reason.note)
+
+  const abs = path.join(repoPath, file)
+  let stat: fs.Stats
+  try {
+    stat = fs.statSync(abs)
+  } catch {
+    return noteDiff('文件不可读')
+  }
+  if (!stat.isFile()) return noteDiff('非普通文件，内容已省略')
+
+  let content: string
+  try {
+    content = fs.readFileSync(abs, 'utf8')
+  } catch {
+    return noteDiff('文件不可读')
+  }
+  // 含 NUL 字节 → 二进制
+  if (content.includes('\0')) return noteDiff('二进制文件，内容已省略')
+
+  const lines = content.split('\n')
+  // 文件以换行结尾时 split 会多出一个末尾空串，去掉以保持行数与 hunk 头一致
+  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
+  if (lines.length === 0) return header // 空文件：仅留 meta，Viewer 自然显示空
+  const body = lines.map((l) => '+' + l).join('\n')
+  return header + `@@ -0,0 +1,${lines.length} @@\n` + body + '\n'
 }
 
 /** 获取整体暂存 diff（喂给 AI 的核心输入） */

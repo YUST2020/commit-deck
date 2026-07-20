@@ -132,16 +132,17 @@ export const useAiStore = defineStore('ai', () => {
   }
 
   /* ---------- 前缀管理 ---------- */
-  async function addPrefix(label: string): Promise<void> {
+  async function addPrefix(label: string, description?: string): Promise<void> {
     const trimmed = label.trim()
     if (!trimmed || !prefs.value) return
     // 去重（label 不区分大小写）
     if (prefs.value.prefixes.some((p) => p.label.toLowerCase() === trimmed.toLowerCase())) {
       return
     }
+    const desc = description?.trim() || undefined
     const next: AiPrefs = {
       ...prefs.value,
-      prefixes: [...prefs.value.prefixes, { id: genPrefixIdLocal(), label: trimmed }]
+      prefixes: [...prefs.value.prefixes, { id: genPrefixIdLocal(), label: trimmed, description: desc }]
     }
     await persistPrefs(next)
   }

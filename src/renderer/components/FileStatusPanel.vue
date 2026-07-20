@@ -89,7 +89,8 @@ function dirName(p: string): string {
             {{ statusMap[f.status].label }}
           </span>
           <div class="file-row__main">
-            <span class="file-row__name">{{ fileName(f.path) }}</span>
+            <span class="file-row__name" :class="{ 'file-row__name--deleted': f.status === 'deleted' }">{{ fileName(f.path) }}</span>
+            <span v-if="f.renamedFrom" class="file-row__rename" :title="`重命名自 ${f.renamedFrom}`">← {{ fileName(f.renamedFrom) }}</span>
             <span class="file-row__dir" :title="dirName(f.path)">{{ dirName(f.path) }}</span>
           </div>
           <button class="file-row__act" title="取消暂存" @click.stop="emit('unstage', [f.path])">
@@ -115,7 +116,8 @@ function dirName(p: string): string {
             {{ statusMap[f.status].label }}
           </span>
           <div class="file-row__main">
-            <span class="file-row__name">{{ fileName(f.path) }}</span>
+            <span class="file-row__name" :class="{ 'file-row__name--deleted': f.status === 'deleted' }">{{ fileName(f.path) }}</span>
+            <span v-if="f.renamedFrom" class="file-row__rename" :title="`重命名自 ${f.renamedFrom}`">← {{ fileName(f.renamedFrom) }}</span>
             <span class="file-row__dir" :title="dirName(f.path)">{{ dirName(f.path) }}</span>
           </div>
           <button class="file-row__act" title="暂存" @click.stop="emit('stage', [f.path])">
@@ -300,6 +302,22 @@ function dirName(p: string): string {
   text-overflow: ellipsis;
   flex-shrink: 0; /* 文件名优先完整显示，目录在后截断 */
   max-width: 60%;
+}
+
+/* 删除态文件名：划线 + 弱化色，强化视觉表达 */
+.file-row__name--deleted {
+  text-decoration: line-through;
+  color: var(--text-tertiary);
+}
+
+/* rename 旧文件名提示：弱化色 + 小字号，附在新文件名后，
+   既保留「重命名自 xxx」的信息，又不喧宾夺主 */
+.file-row__rename {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .file-row__dir {

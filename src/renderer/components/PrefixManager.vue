@@ -19,6 +19,7 @@ const message = useMessage()
 
 const list = ref<CommitPrefix[]>([])
 const inputLabel = ref('')
+const inputDesc = ref('')
 
 watch(
   () => props.show,
@@ -26,6 +27,7 @@ watch(
     if (open) {
       list.value = props.prefixes.map((p) => ({ ...p }))
       inputLabel.value = ''
+      inputDesc.value = ''
     }
   }
 )
@@ -37,8 +39,10 @@ function add(): void {
     message.warning('该前缀已存在')
     return
   }
-  list.value.push({ id: genPrefixIdLocal(), label })
+  const description = inputDesc.value.trim() || undefined
+  list.value.push({ id: genPrefixIdLocal(), label, description })
   inputLabel.value = ''
+  inputDesc.value = ''
 }
 
 function remove(id: string): void {
@@ -77,14 +81,32 @@ function onSave(): void {
     <div class="pm">
       <!-- 新增 -->
       <div class="pm__add">
-        <NInput
-          v-model:value="inputLabel"
-          placeholder="输入前缀，如 feat / TASK#12345"
-          size="small"
-          @keydown.enter="add"
-        />
-        <NButton size="small" type="primary" :disabled="!inputLabel.trim()" @click="add">
+        <div class="pm__field">
+          <div class="pm__field-head">
+            <span class="pm__field-label font-medium">名称</span>
+            <span class="pm__field-status">必填</span>
+          </div>
+          <NInput
+            v-model:value="inputLabel"
+            placeholder="feat / fix / TASK#12345"
+            size="small"
+            @keydown.enter="add"
+          />
+        </div>
+        <div class="pm__field">
+          <div class="pm__field-head">
+            <span class="pm__field-label font-medium">描述</span>
+            <span class="pm__field-status">可选 · hover 时显示</span>
+          </div>
+          <NInput
+            v-model:value="inputDesc"
+            placeholder="前缀用途说明"
+            size="small"
+          />
+        </div>
+        <NButton block size="small" type="primary" style="margin-bottom: 1rem;" :disabled="!inputLabel.trim()" @click="add">
           <template #icon><Plus :size="14" /></template>
+          添加前缀
         </NButton>
       </div>
 
@@ -99,7 +121,10 @@ function onSave(): void {
           :key="p.id"
           class="pm__row"
         >
-          <span class="pm__label">{{ p.label }}</span>
+          <div class="pm__info">
+            <span class="pm__label">{{ p.label }}</span>
+            <span v-if="p.description" class="pm__desc">{{ p.description }}</span>
+          </div>
           <div class="pm__ops">
             <button class="pm__op" title="上移" :disabled="i === 0" @click="move(i, -1)">
               <ChevronUp :size="14" />
@@ -132,8 +157,31 @@ function onSave(): void {
 <style scoped>
 .pm__add {
   display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-6) var(--sp-5);
+}
+/* 字段：标签行 + 输入框 */
+.pm__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.pm__field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: var(--sp-2);
-  padding: 0 var(--sp-6) var(--sp-3);
+  padding: 0 var(--sp-1);
+}
+.pm__field-label {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+.pm__field-status {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
 }
 .pm__list {
   max-height: 320px;
@@ -177,6 +225,20 @@ function onSave(): void {
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
   color: var(--text-primary);
+}
+.pm__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pm__desc {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.4;
 }
 .pm__ops {
   display: flex;

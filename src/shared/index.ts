@@ -23,11 +23,21 @@ export type FileStatus =
   | 'untracked' // 未跟踪
 
 export interface FileChange {
-  /** 仓库相对路径 */
+  /**
+   * 仓库相对路径（git 可用的 pathspec，统一取新路径）。
+   * 注意：对 rename，这里是「重命名后的新路径」，不是 `old → new` 形式，
+   * 以便直接作为 `git add` / `git reset` / `git diff --` 的 pathspec。
+   */
   path: string
   status: FileStatus
   /** 是否已暂存 */
   staged: boolean
+  /**
+   * rename 时的原路径（重命名前的旧路径）。
+   * 仅 status='renamed' 时有值，供 UI 展示「old → new」形态；
+   * 操作（stage/unstage/diff）一律用 `path`（新路径），不要用此字段。
+   */
+  renamedFrom?: string
 }
 
 /** 提交历史条目 */
@@ -73,6 +83,8 @@ export interface CommitPrefix {
   id: string
   /** 显示名 / 注入文本，如 feat / fix / TASK#12345 */
   label: string
+  /** 可选描述：主面板 hover 时由 NTooltip 展示，留空则回退到默认提示 */
+  description?: string
 }
 
 /** AI 服务完整配置（持久化） */

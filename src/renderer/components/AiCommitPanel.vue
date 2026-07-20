@@ -117,16 +117,19 @@ function omittedReasonText(files: OmittedFile[]): string {
 /** 快捷新增前缀弹窗状态（Electron 沙箱不支持 window.prompt，改用自有弹窗） */
 const quickAddOpen = ref(false)
 const quickAddValue = ref('')
+const quickAddDesc = ref('')
 
 function openQuickAdd(): void {
   quickAddValue.value = ''
+  quickAddDesc.value = ''
   quickAddOpen.value = true
 }
 
 function confirmQuickAdd(): void {
   const label = quickAddValue.value.trim()
   if (!label) return
-  void ai.addPrefix(label).then(() => {
+  const desc = quickAddDesc.value.trim() || undefined
+  void ai.addPrefix(label, desc).then(() => {
     const created = ai.prefs?.prefixes.slice(-1)[0]
     if (created) void ai.selectPrefix(created.id)
   })
@@ -234,19 +237,26 @@ async function onCommit(push: boolean): Promise<void> {
           >
             无
           </div>
-          <div
+          <NTooltip
             v-for="p in ai.prefs?.prefixes ?? []"
             :key="p.id"
-            class="px__item"
-            :class="{ 'px__item--active': ai.selectedPrefixId === p.id }"
-            role="button"
-            tabindex="0"
-            :title="`提交信息以 ${p.label} 开头`"
-            @click="onSelectPrefix(p.id)"
-            @keydown.enter.prevent="onSelectPrefix(p.id)"
+            placement="top"
+            :delay="200"
           >
-            {{ p.label }}
-          </div>
+            <template #trigger>
+              <div
+                class="px__item"
+                :class="{ 'px__item--active': ai.selectedPrefixId === p.id }"
+                role="button"
+                tabindex="0"
+                @click="onSelectPrefix(p.id)"
+                @keydown.enter.prevent="onSelectPrefix(p.id)"
+              >
+                {{ p.label }}
+              </div>
+            </template>
+            <span class="whitespace-pre-wrap">{{ p.description || `提交信息以 ${p.label} 开头` }}</span>
+          </NTooltip>
         </div>
       </NScrollbar>
       <div class="px__actions">
@@ -534,11 +544,29 @@ async function onCommit(push: boolean): Promise<void> {
       :show="quickAddOpen"
       @update:show="(v) => (quickAddOpen = v)"
     >
-      <NInput
-        v-model:value="quickAddValue"
-        placeholder="如 feat / TASK#12345"
-        @keydown.enter="confirmQuickAdd"
-      />
+      <div class="qa">
+        <div class="qa__field">
+          <div class="qa__field-head">
+            <span class="qa__field-label font-medium">名称</span>
+            <span class="qa__field-status">必填</span>
+          </div>
+          <NInput
+            v-model:value="quickAddValue"
+            placeholder="feat / fix / TASK#12345"
+            @keydown.enter="confirmQuickAdd"
+          />
+        </div>
+        <div class="qa__field">
+          <div class="qa__field-head">
+            <span class="qa__field-label font-medium">描述</span>
+            <span class="qa__field-status">可选 · hover 时显示</span>
+          </div>
+          <NInput
+            v-model:value="quickAddDesc"
+            placeholder="前缀用途说明"
+          />
+        </div>
+      </div>
       <template #footer>
         <NSpace justify="end" :size="8">
           <NButton size="small" @click="quickAddOpen = false">取消</NButton>
@@ -615,6 +643,33 @@ async function onCommit(push: boolean): Promise<void> {
   font-size: var(--fs-xs);
   color: var(--text-tertiary);
   flex-shrink: 0;
+}
+/* 快捷新增弹窗：带标签的字段堆叠 */
+.qa {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.qa__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.qa__field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-1);
+}
+.qa__field-label {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+.qa__field-status {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
 }
 .px__scroll {
   flex: 1;
