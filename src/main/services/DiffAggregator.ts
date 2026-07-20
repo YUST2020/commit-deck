@@ -16,42 +16,13 @@ import type { DiffForAi, OmittedFile } from '@shared/index'
 /** 单文件 diff 超过该字符数则折叠（仅保留头 + 增删行统计） */
 const MAX_FILE_CHARS = 15000
 /**
- * 聚合后总字符数上限（fallback）：未提供模型信息时使用。
- * 提供模型时会按上下文长度动态推算（见 computeMaxDiffChars）。
+ * 聚合后总字符数上限：固定按 128K token 上下文推算。
+ * 预留 2K token 给 system prompt + 输出，1 token ≈ 3.5 字符（代码 diff 以 ASCII 为主）。
+ * (128000 − 2000) × 3.5 ≈ 441000 字符。
  */
-const MAX_TOTAL_CHARS = 30000
+const MAX_TOTAL_CHARS = Math.floor((128_000 - 2_000) * 3.5) // 441000
 /** 读取未跟踪文件内容时的单文件大小上限（字节），超过则不读内容 */
 const MAX_UNTRACKED_FILE_BYTES = 64 * 1024 // 64KB
-
-/* ---------- 模型上下文推算 ---------- */
-/**
- * 已知模型 → 上下文 token 数（粗略映射）。
- * 按数组顺序匹配，第一个命中的生效；最后一项兜底所有未知模型为 8K。
- * 维护：新增模型时按其官方标称上下文长度补一条 pattern。
- */
-const MODEL_CONTEXT_MAP: Array<{ pattern: RegExp; ctx: number }> = [
-  // 超长上下文（200K+）：glm-4.7 / glm-5 系列（含 flash 变体）
-  { pattern: /glm-(4\.7|5)/i, ctx: 200_000 },
-  // 长上下文（128K）
-  { pattern: /gpt-4o|claude-3.*sonnet|glm-4|qwen-?2\.5|deepseek.*(v3|v4)/i, ctx: 128_000 },
-  // 中等上下文（32K）
-  { pattern: /gpt-4|claude-3.*haiku|qwen-?7/i, ctx: 32_000 },
-  // 小模型 / 未知
-  { pattern: /.*/, ctx: 8_000 }
-]
-
-/**
- * 按模型推算可用的 diff 字符数上限。
- * 预留 2K token 给 system prompt + 输出；字符数 ≈ token × 3.5（代码 diff 以 ASCII 为主，按 1 token ≈ 3.5 字符估算）。
- * 未知模型（model 为空或未命中）回落到 MAX_TOTAL_CHARS。
- */
-export function computeMaxDiffChars(model: string | undefined): number {
-  if (!model || !model.trim()) return MAX_TOTAL_CHARS
-  const entry = MODEL_CONTEXT_MAP.find((m) => m.pattern.test(model))
-  const ctx = entry?.ctx ?? 8_000
-  const usable = Math.max(ctx - 2_000, 4_000)
-  return Math.floor(usable * 3.5)
-}
 
 /** 默认按二进制/产物处理的扩展名 */
 const BINARY_EXTENSIONS = new Set([
@@ -516,8 +487,9 @@ function diffForUntracked(
  * - 有暂存 → source='staged'，仅取 --cached diff
  * - 无暂存 → source='all'，取工作区已跟踪文件 diff + 未跟踪文件内容
  *
+ * 总量上限固定按 128K token 上下文推算（见 MAX_TOTAL_CHARS），不再随模型变化。
+ *
  * @param repoPath         仓库绝对路径
- * @param model            AI 模型 id（用于按上下文长度动态推算总量上限；为空则用 fallback 常量）
  * @param forceIncludePaths 用户指定「强制包含」的文件路径（优先占用配额、尽量发全文；二进制/产物除外）
  * @param onlyPaths        仅保留这些路径的改动（代码审查文件选择器选用）。
  *                         为空/未传 = 不过滤（全量，commit message 生成即此模式）。
@@ -526,13 +498,12 @@ function diffForUntracked(
  */
 export async function aggregateDiffForAi(
   repoPath: string,
-  model?: string,
   forceIncludePaths: string[] = [],
   onlyPaths: string[] = []
 ): Promise<DiffForAi> {
   const git: SimpleGit = simpleGit({ baseDir: repoPath, binary: 'git', maxConcurrentProcesses: 4 })
   const omitted: OmittedFile[] = []
-  const maxTotal = computeMaxDiffChars(model)
+  const maxTotal = MAX_TOTAL_CHARS
   const forceSet = new Set(forceIncludePaths)
   const onlySet = onlyPaths.length > 0 ? new Set(onlyPaths) : null
 

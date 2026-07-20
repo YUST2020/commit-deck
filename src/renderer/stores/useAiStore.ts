@@ -308,17 +308,11 @@ export const useAiStore = defineStore('ai', () => {
     omittedFiles.value = []
 
     try {
-      // 取 diff（暂存优先，否则全量）
-      // 传 model 给主进程，用于按模型上下文长度动态推算 diff 总量上限
+      // 取 diff（暂存优先，否则全量）。总量上限固定按 128K token 推算，无需传模型。
       const cfgSnap = config.value
-      const modelForDiff = cfgSnap
-        ? cfgSnap.presetCustomModel
-          ? cfgSnap.model
-          : cfgSnap.presetModel
-        : undefined
       // IPC 无法 structured-clone Vue 响应式数组（共性 Bug）：forceIncludePaths.value 仍是 Proxy，
       // 跨 IPC 边界必须先转纯数组，否则报 "An object could not be cloned"。
-      const diffRes = await window.api.gitDiffForAi(repoPath, modelForDiff, [...forceIncludePaths.value])
+      const diffRes = await window.api.gitDiffForAi(repoPath, [...forceIncludePaths.value])
       if (!diffRes.ok) {
         error.value = diffRes.error.message || '获取差异失败'
         phase.value = 'error'

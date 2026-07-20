@@ -64,11 +64,11 @@ const api = {
   // 撤回最近 N 个未推送的提交（soft reset，改动保留到暂存区）
   gitUndoCommit: (repoPath: string, count: number): Promise<GResult<null>> =>
     ipcRenderer.invoke('git:undoCommit', repoPath, count),
-  // 差异聚合（供 AI：暂存优先，否则全量；含大文件保护；model 用于按上下文长度动态推算总量上限）
+  // 差异聚合（供 AI：暂存优先，否则全量；含大文件保护；总量上限固定按 128K token 推算）
   // forceIncludePaths：用户指定「强制包含」的文件路径，优先占用配额、尽量发全文（二进制/产物除外）
   // onlyPaths：代码审查文件选择器选中的路径白名单（仅保留这些文件的 diff；为空=不过滤）
-  gitDiffForAi: (repoPath: string, model?: string, forceIncludePaths?: string[], onlyPaths?: string[]): Promise<GResult<DiffForAi>> =>
-    ipcRenderer.invoke('git:diffForAi', repoPath, model, forceIncludePaths, onlyPaths),
+  gitDiffForAi: (repoPath: string, forceIncludePaths?: string[], onlyPaths?: string[]): Promise<GResult<DiffForAi>> =>
+    ipcRenderer.invoke('git:diffForAi', repoPath, forceIncludePaths, onlyPaths),
   // 代码审查文件选择器取数：列出可审查的改动文件（含 contentOmitted 标记，用于禁用二进制/产物勾选）
   gitChangedFiles: (repoPath: string): Promise<GResult<ChangedFilesForReview>> =>
     ipcRenderer.invoke('git:changedFiles', repoPath),

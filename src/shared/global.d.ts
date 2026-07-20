@@ -46,10 +46,10 @@ export interface AppApi {
   // 拉取远端（git pull --rebase）；冲突时主进程自动 abort 回退
   gitPull: (repoPath: string) => Promise<GResult<GitSyncResult>>
   gitUndoCommit: (repoPath: string, count: number) => Promise<GResult<null>>
-  // 差异聚合（供 AI：暂存优先，否则全量；含大文件保护；model 用于按上下文长度动态推算总量上限）
+  // 差异聚合（供 AI：暂存优先，否则全量；含大文件保护；总量上限固定按 128K token 推算）
   // forceIncludePaths：用户指定「强制包含」的文件路径，优先占用配额、尽量发全文（二进制/产物除外）
   // onlyPaths：代码审查文件选择器选中的路径白名单（仅保留这些文件的 diff；为空=不过滤）
-  gitDiffForAi: (repoPath: string, model?: string, forceIncludePaths?: string[], onlyPaths?: string[]) => Promise<GResult<DiffForAi>>
+  gitDiffForAi: (repoPath: string, forceIncludePaths?: string[], onlyPaths?: string[]) => Promise<GResult<DiffForAi>>
   // 代码审查文件选择器取数：列出可审查的改动文件（含 contentOmitted 标记）
   gitChangedFiles: (repoPath: string) => Promise<GResult<ChangedFilesForReview>>
   // AI 生成（流式）

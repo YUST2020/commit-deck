@@ -179,16 +179,10 @@ export const useCodeReviewStore = defineStore('codeReview', () => {
     lastReviewPaths.value = onlyPaths
 
     try {
-      // 取 diff（与 commit 同源：暂存优先，否则全量）。
-      // 传 model 给主进程，用于按模型上下文长度动态推算 diff 总量上限。
+      // 取 diff（与 commit 同源：暂存优先，否则全量）。总量上限固定按 128K token 推算，无需传模型。
       // review 走文件选择器语义：onlyPaths 限定审查范围（不再用 commit 的 forceIncludePaths）。
       const cfgSnap = ai.config
-      const modelForDiff = cfgSnap
-        ? cfgSnap.presetCustomModel
-          ? cfgSnap.model
-          : cfgSnap.presetModel
-        : undefined
-      const diffRes = await window.api.gitDiffForAi(repoPath, modelForDiff, [], onlyPaths)
+      const diffRes = await window.api.gitDiffForAi(repoPath, [], onlyPaths)
       if (!diffRes.ok) {
         error.value = diffRes.error.message || '获取差异失败'
         phase.value = 'error'
