@@ -1,6 +1,6 @@
 <div align="center">
-  <img src="build/icon.png" alt="CommitDeck Logo" width="120" />
-  <h1>CommitDeck</h1>
+  <img src="build/icon.png" alt="CommitDesk Logo" width="120" />
+  <h1>CommitDesk</h1>
   <p><b>AI 驱动的本地 Git 提交助手 · Commit Message 生成 & Code Review</b></p>
 
   <p align="center">
@@ -10,7 +10,7 @@
     <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat-square" alt="License" />
   </p>
 
-  <img src="public/home.png" alt="CommitDeck Preview" width="100%" />
+  <img src="public/home.png" alt="CommitDesk Preview" width="100%" />
 </div>
 
 
@@ -35,11 +35,11 @@
 
 ---
 
-## ⚖️ 为什么选择 CommitDeck？
+## ⚖️ 为什么选择 CommitDesk？
 
 Cursor、VsCode插件、Trae 等 IDE 已有 AI Commit Message 能力，但仍有很多不足：
 
-| 痛点场景 | 通用 AI 编程工具 | CommitDeck |
+| 痛点场景 | 通用 AI 编程工具 | CommitDesk |
 | :--- | :--- | :--- |
 | **提交前缀不可控** | 仅遵循固定规范，难以根据公司规范快速生成关联前缀（如 `TASK#123`，`BUGFIX#123`），仍然需要大量手动添加操作 | **完全自定义**，支持按项目记忆前缀列表，快速添加 |
 | **生成规则不可改** | 规则内置，无法适配特定团队规范 | **规则全开放**，支持自由定义 Prompt |
@@ -65,8 +65,8 @@ Cursor、VsCode插件、Trae 等 IDE 已有 AI Commit Message 能力，但仍有
 
 ```bash
 # 克隆仓库
-git clone https://github.com/<your-username>/commit-deck.git
-cd commit-deck
+git clone https://github.com/<your-username>/commit-desk.git
+cd commit-desk
 
 # 安装依赖
 pnpm install

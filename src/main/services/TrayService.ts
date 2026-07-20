@@ -14,7 +14,7 @@ import { join } from 'path'
 import { Menu, Tray, nativeImage, type BrowserWindow } from 'electron'
 
 /**
- * 兜底托盘图标：32×32 品牌靛蓝 PNG（白色 commit-deck 竖线 + 环）。
+ * 兜底托盘图标：32×32 品牌靛蓝 PNG（白色 commit-desk 竖线 + 环）。
  * 仅当 build/icon.png 加载失败时使用。
  */
 const FALLBACK_ICON_DATA_URL =
@@ -46,7 +46,7 @@ export const TrayService = {
     const { getWindow, onQuit } = deps
     const icon = buildIcon()
     tray = new Tray(icon)
-    tray.setToolTip('CommitDeck')
+    tray.setToolTip('CommitDesk')
 
     const menu = Menu.buildFromTemplate([
       {

@@ -1,5 +1,7 @@
-appId: com.commit-deck.CommitDeck
-productName: CommitDeck
+appId: com.commit-desk.CommitDesk
+productName: CommitDesk
+extraMetadata:
+  description: CommitDesk
 directories:
   output: release
   buildResources: build

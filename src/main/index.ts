@@ -32,7 +32,7 @@ function createWindow(): void {
     autoHideMenuBar: true,
     // 移除系统默认标题栏（含最小化/关闭按钮），改由渲染进程自定义控件
     frame: false,
-    title: 'CommitDeck',
+    title: 'CommitDesk',
     // 透明窗口：让渲染层外圆角以外的区域透明露出桌面。
     // 注意：transparent 窗口不能设置 backgroundColor，故移除。
     transparent: true,

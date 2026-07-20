@@ -105,10 +105,10 @@ const hasProjects = computed(() => projects.value.length > 0)
         <template #trigger>
           <div class="sider__logo"><AppIcon :size="22" /></div>
         </template>
-        CommitDeck
+        CommitDesk
       </NTooltip>
       <div v-else class="sider__logo"><AppIcon :size="22" /></div>
-      <span v-if="!collapsed" class="sider__title">CommitDeck</span>
+      <span v-if="!collapsed" class="sider__title">CommitDesk</span>
     </div>
     <!-- 有项目：列表 -->
     <template v-if="hasProjects">
