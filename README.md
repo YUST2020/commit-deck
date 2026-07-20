@@ -17,11 +17,11 @@
 ## ✨ 核心特性
 
 ### 🚀 Commit Message 生成
- **流式生成**：一键分析暂存区 Diff，流式输出符合 Conventional Commits 规范的提交信息。
- **自定义前缀**：支持维护项目专属的前缀列表，按需快速选择。
- **规则引擎**：自由编辑 AI 生成规则，完美适配团队规范。
- **智能截断**：自动折叠大文件、二进制文件，在模型上下文预算内智能截断 Diff。
- **一键操作**：确认后支持直接 Commit 或 Commit + Push。
+- **流式生成**：一键分析暂存区 Diff，流式输出符合 Conventional Commits 规范的提交信息。
+- **自定义前缀**：支持维护项目专属的前缀列表，按需快速选择。
+- **规则引擎**：自由编辑 AI 生成规则，完美适配团队规范。
+- **智能截断**：自动折叠大文件、二进制文件，在模型上下文预算内智能截断 Diff。
+- **一键操作**：确认后支持直接 Commit 或 Commit + Push。
 
 ### 🔍 AI Code Review
 - **按需评审**：独立评审通道，可挑选特定变更文件进行针对性评审。
@@ -56,6 +56,19 @@ Cursor、VsCode插件、Trae 等 IDE 已有 AI Commit Message 能力，但仍有
 - **自定义端点**：支持任意兼容 OpenAI / Anthropic 协议的服务（含私有部署）。
 
 ---
+
+## 交互预览
+
+### Code Review
+
+<img src="public/codeReview.png" alt="AI Code Review" />
+
+### 配置
+
+<div style="display:flex; gap:16px; justify-content:center;">
+  <img src="public/config1.png" alt="" style="width:40%;" />
+  <img src="public/config2.png" alt="" style="width:40%;" />
+</div>
 
 ## 🛠️ 本地开发
 
