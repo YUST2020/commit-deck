@@ -4,6 +4,7 @@ import { registerProjectIpc } from './ipc/project'
 import { registerGitIpc } from './ipc/git'
 import { registerConfigIpc } from './ipc/config'
 import { registerAiIpc } from './ipc/ai'
+import { registerWindowResizeIpc } from './ipc/windowResize'
 import { StoreService } from './services/StoreService'
 import { TrayService } from './services/TrayService'
 import { ShortcutService } from './services/ShortcutService'
@@ -91,6 +92,8 @@ app.whenReady().then(() => {
   registerConfigIpc()
   registerAiIpc()
   registerWindowIpc()
+  // Windows 自定义 resize IPC（透明无边框窗口无原生 WS_THICKFRAME，需手动热区+setBounds）
+  registerWindowResizeIpc(() => mainWindow)
   createWindow()
   // 创建系统托盘（getter 注入主窗口引用，避免耦合窗口生命周期）。
   // onQuit：托盘「退出」必须先置 allowQuit=true 再 quit，否则会触发

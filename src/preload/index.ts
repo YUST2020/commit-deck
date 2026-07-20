@@ -14,7 +14,8 @@ import type {
   FileChange,
   GitSyncResult,
   LogEntry,
-  ProjectMeta
+  ProjectMeta,
+  ResizeDir
 } from '@shared/index'
 
 /** 统一的可序列化结果类型 */
@@ -148,6 +149,15 @@ const api = {
   windowHideToTray: (): void => ipcRenderer.send('window:hideToTray'),
   // 真正退出应用（关闭确认选「退出」/ 托盘「退出」时调用）
   windowQuit: (): void => ipcRenderer.send('window:quit'),
+  // ---------- 自定义窗口 resize（仅 Windows） ----------
+  // 透明无边框窗口无原生 WS_THICKFRAME，由渲染层 8 方向热区触发，
+  // 主进程轮询 cursor + setBounds 完成实际缩放。
+  windowResizeStart: (dir: ResizeDir): Promise<void> =>
+    ipcRenderer.invoke('window:resize:start', dir),
+  windowResizeEnd: (): Promise<void> => ipcRenderer.invoke('window:resize:end'),
+  // 平台标识（渲染层沙箱拿不到 process.platform，由 preload 暴露）
+  // 用于判断是否渲染 Windows 专属的 resize 热区
+  platform: process.platform,
   // 订阅主进程的「关闭决策请求」（自定义关闭按钮 / Alt+F4 触发）：
   // 收到后由渲染层弹确认框，再决定隐藏到托盘还是退出。
   onRequestClose: (cb: () => void): (() => void) => {

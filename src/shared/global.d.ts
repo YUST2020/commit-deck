@@ -16,7 +16,8 @@ import type {
   FileChange,
   GitSyncResult,
   LogEntry,
-  ProjectMeta
+  ProjectMeta,
+  ResizeDir
 } from '@shared/index'
 
 type Result<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } }
@@ -90,6 +91,12 @@ export interface AppApi {
   windowHideToTray: () => void
   // 真正退出应用
   windowQuit: () => void
+  // 自定义窗口 resize（仅 Windows）：透明无边框窗口无原生 WS_THICKFRAME，
+  // 由渲染层 8 方向热区触发，主进程轮询 cursor + setBounds 完成缩放
+  windowResizeStart: (dir: ResizeDir) => Promise<void>
+  windowResizeEnd: () => Promise<void>
+  // 平台标识（渲染层沙箱拿不到 process.platform）
+  platform: string
   // 订阅主进程的「关闭决策请求」（自定义关闭按钮 / Alt+F4 触发）；返回取消订阅
   onRequestClose: (cb: () => void) => () => void
 }

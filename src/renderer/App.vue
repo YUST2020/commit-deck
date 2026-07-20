@@ -25,6 +25,7 @@ import AppHeader from '@/components/AppHeader.vue'
 import WindowControls from '@/components/WindowControls.vue'
 import SettingsModal from '@/components/SettingsModal.vue'
 import CloseConfirmDialog from '@/components/CloseConfirmDialog.vue'
+import ResizeHandles from '@/components/ResizeHandles.vue'
 import WorkspaceView from '@/views/WorkspaceView.vue'
 
 const { naiveTheme, themeOverrides, isDark, setMode } = useTheme()
@@ -136,6 +137,9 @@ watch(
           <SettingsModal v-model:show="ui.settingsOpen" />
           <!-- 关闭主窗口确认弹窗（受 settings.confirmOpen 控制） -->
           <CloseConfirmDialog v-model:show="settings.confirmOpen" />
+          <!-- 自定义窗口 resize 热区（仅 Windows，组件内部 platform 守卫）。
+               position:fixed 撑满 OS 窗口矩形，与 .app-root 同级不互相影响。 -->
+          <ResizeHandles />
         </NNotificationProvider>
       </NDialogProvider>
     </NMessageProvider>

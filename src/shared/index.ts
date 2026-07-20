@@ -246,3 +246,12 @@ export interface ChangedFilesForReview {
   /** 改动文件清单 */
   files: ChangedFileInfo[]
 }
+
+/**
+ * 自定义窗口 resize 方向（仅 Windows 平台 transparent frameless 窗口使用）。
+ *
+ * 背景：transparent 窗口被 Electron 移除 WS_THICKFRAME，原生 resize 不可用，
+ * 改由渲染层 8 方向热区 + 主进程 setBounds 轮询实现（见 main/ipc/windowResize.ts）。
+ * 4 个直边 + 4 个角，命名取首字母组合。
+ */
+export type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
