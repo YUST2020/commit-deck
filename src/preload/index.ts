@@ -46,7 +46,7 @@ const api = {
     ipcRenderer.invoke('git:branch', repoPath),
   gitFetch: (repoPath: string): Promise<GResult<null>> =>
     ipcRenderer.invoke('git:fetch', repoPath),
-  gitDiffFile: (repoPath: string, file: string, staged: boolean): Promise<GResult<string>> =>
+  gitDiffFile: (repoPath: string, file: string | string[], staged: boolean): Promise<GResult<string>> =>
     ipcRenderer.invoke('git:diffFile', repoPath, file, staged),
   gitDiffStaged: (repoPath: string): Promise<GResult<string>> =>
     ipcRenderer.invoke('git:diffStaged', repoPath),

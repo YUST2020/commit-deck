@@ -370,23 +370,35 @@ export async function fetch(repoPath: string): Promise<void> {
   }
 }
 
-/** 获取单文件 diff（工作区态或暂存态） */
+/**
+ * 获取单文件 diff（工作区态或暂存态）。
+ *
+ * @param file 单个路径或多个路径（数组）。
+ *   rename 场景下 staged 态需传 [newPath, oldPath]——git 的 rename 检测
+ *   需要「成对」看到删除（旧路径）与新增（新路径）才能识别为 rename，
+ *   只传新路径会让 git 仅看到「新增新路径」，识别不出 rename，
+ *   DiffViewer 会显示成「new file」而非「rename from / rename to」。
+ */
 export async function getDiffFile(
   repoPath: string,
-  file: string,
+  file: string | string[],
   staged: boolean
 ): Promise<string> {
   const git = gitOf(repoPath)
+  const paths = Array.isArray(file) ? file : [file]
   if (staged) {
-    return git.diff(['--cached', '--', file])
+    return git.diff(['--cached', '-M', '--', ...paths])
   }
-  const diff = await git.diff(['--', file])
+  const diff = await git.diff(['--', ...paths])
   if (diff) return diff
   // 工作区态空 diff：若该文件未被 git 跟踪，读盘合成「整文件新增」diff，
   // 让 DiffViewer 能展示未跟踪文件的完整内容（与 AI 聚合路径行为一致）。
-  const tracked = await git.raw(['ls-files', '--', file])
+  // 多路径时不走合成（语义不明），直接返回空 diff。
+  if (paths.length > 1) return diff
+  const single = paths[0]
+  const tracked = await git.raw(['ls-files', '--', single])
   if (tracked.trim()) return diff
-  return synthesizeUntrackedDiff(repoPath, file)
+  return synthesizeUntrackedDiff(repoPath, single)
 }
 
 /**

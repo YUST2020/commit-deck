@@ -12,7 +12,12 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
-  select: [path: string, staged: boolean]
+  /**
+   * 选中文件查看 diff。
+   * renamedFrom 用于 rename 文件——loadDiff 时需要同时传新旧路径才能让
+   * git 识别 rename（否则只看新路径会显示成 new file）。
+   */
+  select: [path: string, staged: boolean, renamedFrom?: string]
   stage: [files: string[]]
   unstage: [files: string[]]
   refresh: []
@@ -37,6 +42,22 @@ function dirName(p: string): string {
   parts.pop()
   return parts.join('/')
 }
+
+/**
+ * 收集某条文件改动作为 pathspec 列表传给 git。
+ * - 普通（非 rename）文件：仅 [path]。
+ * - rename 文件：[path, renamedFrom]（新路径 + 旧路径）。
+ *
+ * 之所以对 rename 同时传两个路径：`git reset -- <new>` 只重置新路径，
+ * rename 的「删旧路径」改动会残留在 staged delete。同时传新旧两路径，
+ * git 才能完整撤销 staged rename（旧路径回到 index，新路径从 index 移除）。
+ * 注：worktree 的 rename 不会被 git reset 撤销（reset 只动 index），
+ * 因此撤销后 a.txt 仍可能显示为 worktree deleted、b.txt 显示为 untracked——
+ * 这是 git 的固有行为，但至少避免了「a.txt 在 staged delete」的误导状态。
+ */
+function pathspecOf(f: FileChange): string[] {
+  return f.renamedFrom ? [f.path, f.renamedFrom] : [f.path]
+}
 </script>
 
 <template>
@@ -52,7 +73,7 @@ function dirName(p: string): string {
         />
       </div>
       <div class="panel__tools">
-        <NButton text size="tiny" type="primary" :disabled="!unstaged.length" @click="emit('stage', unstaged.map((f) => f.path))">
+        <NButton text size="tiny" type="primary" :disabled="!unstaged.length" @click="emit('stage', unstaged.flatMap(pathspecOf))">
           全部暂存
         </NButton>
         <NButton quaternary size="tiny" :disabled="loading" @click="emit('refresh')">
@@ -83,7 +104,7 @@ function dirName(p: string): string {
           class="file-row"
           :class="{ 'file-row--active': f.path === selected }"
           :style="{ '--stagger': i }"
-          @click="emit('select', f.path, true)"
+          @click="emit('select', f.path, true, f.renamedFrom)"
         >
           <span class="file-row__badge" :style="{ color: statusMap[f.status].color }">
             {{ statusMap[f.status].label }}
@@ -93,7 +114,7 @@ function dirName(p: string): string {
             <span v-if="f.renamedFrom" class="file-row__rename" :title="`重命名自 ${f.renamedFrom}`">← {{ fileName(f.renamedFrom) }}</span>
             <span class="file-row__dir" :title="dirName(f.path)">{{ dirName(f.path) }}</span>
           </div>
-          <button class="file-row__act" title="取消暂存" @click.stop="emit('unstage', [f.path])">
+          <button class="file-row__act" title="取消暂存" @click.stop="emit('unstage', pathspecOf(f))">
             <Minus :size="14" />
           </button>
         </div>
@@ -110,7 +131,7 @@ function dirName(p: string): string {
           class="file-row"
           :class="{ 'file-row--active': f.path === selected }"
           :style="{ '--stagger': i }"
-          @click="emit('select', f.path, false)"
+          @click="emit('select', f.path, false, f.renamedFrom)"
         >
           <span class="file-row__badge" :style="{ color: statusMap[f.status].color }">
             {{ statusMap[f.status].label }}
@@ -120,7 +141,7 @@ function dirName(p: string): string {
             <span v-if="f.renamedFrom" class="file-row__rename" :title="`重命名自 ${f.renamedFrom}`">← {{ fileName(f.renamedFrom) }}</span>
             <span class="file-row__dir" :title="dirName(f.path)">{{ dirName(f.path) }}</span>
           </div>
-          <button class="file-row__act" title="暂存" @click.stop="emit('stage', [f.path])">
+          <button class="file-row__act" title="暂存" @click.stop="emit('stage', pathspecOf(f))">
             <Plus :size="14" />
           </button>
         </div>

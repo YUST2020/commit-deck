@@ -166,7 +166,7 @@ onBeforeUnmount(() => {
                     :staged="git.stagedFiles"
                     :unstaged="git.unstagedFiles"
                     :loading="git.loading"
-                    @select="(p, s) => git.selectFile(p, s)"
+                    @select="(p, s, r) => git.selectFile(p, s, r)"
                     @stage="(f) => git.stage(f)"
                     @unstage="(f) => git.unstage(f)"
                     @refresh="git.refreshAll()"

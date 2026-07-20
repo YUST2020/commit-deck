@@ -68,8 +68,12 @@ export function registerGitIpc(): void {
 
   ipcMain.handle('git:diffFile', async (_e, repoPath: unknown, file: unknown, staged: unknown) => {
     assertValidPath(repoPath)
-    if (typeof file !== 'string') throw new Error('文件路径非法')
-    return guard(() => getDiffFile(repoPath, file, Boolean(staged)))
+    // file 可为单路径字符串（普通文件）或路径数组（rename 需新旧两路径一起传）
+    if (typeof file !== 'string' && !Array.isArray(file)) throw new Error('文件路径非法')
+    const normalized = Array.isArray(file)
+      ? file.filter((p): p is string => typeof p === 'string')
+      : file
+    return guard(() => getDiffFile(repoPath, normalized, Boolean(staged)))
   })
 
   ipcMain.handle('git:diffStaged', async (_e, repoPath: unknown) => {

@@ -33,6 +33,12 @@ export const useGitStore = defineStore('git', () => {
   const selectedPath = ref<string | null>(null)
   /** 看 工作区态 / 暂存态 */
   const selectedStaged = ref(false)
+  /**
+   * 选中文件的 rename 旧路径（若有）。
+   * 用于 loadDiff 时一并传 [path, renamedFrom] 给 git diff，
+   * 让 git 能识别 rename（仅传新路径会让 rename 显示为 new file）。
+   */
+  const selectedRenamedFrom = ref<string | undefined>(undefined)
   const diffText = ref('')
   const loadingDiff = ref(false)
 
@@ -72,8 +78,52 @@ export const useGitStore = defineStore('git', () => {
   async function refreshStatus(): Promise<void> {
     if (!repoPath.value) return
     const res = await window.api.gitStatus(repoPath.value)
-    if (res.ok) files.value = res.data
-    else error.value = res.error.message
+    if (!res.ok) {
+      error.value = res.error.message
+      return
+    }
+    files.value = res.data
+    // 选中态自愈：commit / stage / unstage 之后，原选中的 (path, staged)
+    // 可能已不存在（如已提交、或文件已切到另一态）。
+    // 校验当前 selectedPath+selectedStaged 是否仍命中 files；不命中则按
+    // 优先级回退：同 path 另一态 → 清空选中。
+    // 命中则按需重载 diff（selectedStaged 可能因 stage/unstage 切换）。
+    reconcileSelection()
+  }
+
+  /**
+   * 刷新 files 后校验并修正 selectedPath / selectedStaged。
+   * - 若 (path, staged) 仍在 files 中：保持选中，diff 视 staged 是否变化决定是否重载；
+   * - 若 path 已不存在于当前 staged 态，但存在于另一态：切到另一态并重载 diff；
+   * - 若 path 完全消失（已 commit / 撤销改动）：清空选中与 diff。
+   * 目的：避免 commit/stage/unstage 后 DiffViewer 仍指向已不存在的条目，
+   *      显示陈旧或空的 diff（用户困惑）。
+   */
+  function reconcileSelection(): void {
+    const p = selectedPath.value
+    if (!p) return
+    const sameSide = files.value.find((f) => f.path === p && f.staged === selectedStaged.value)
+    if (sameSide) {
+      // 同侧命中：若 renamedFrom 与当前保存的不一致（理论上同 path 同侧 rename 不会变），
+      // 同步一次以防万一；不主动重载（selectFile 时已拉过 diff）。
+      if (sameSide.renamedFrom !== selectedRenamedFrom.value) {
+        selectedRenamedFrom.value = sameSide.renamedFrom
+      }
+      return
+    }
+    // 同侧不命中：尝试切到另一态
+    const otherSide = files.value.find((f) => f.path === p)
+    if (otherSide) {
+      selectedStaged.value = otherSide.staged
+      selectedRenamedFrom.value = otherSide.renamedFrom
+      void loadDiff()
+      return
+    }
+    // 完全消失：清空选中
+    selectedPath.value = null
+    selectedStaged.value = false
+    selectedRenamedFrom.value = undefined
+    diffText.value = ''
   }
 
   /** 提交历史加载的纯调用：不管理 refreshingLog 状态，供 refreshAll 统一托管 */
@@ -106,10 +156,11 @@ export const useGitStore = defineStore('git', () => {
     if (res.ok) branch.value = res.data
   }
 
-  /** 选中某文件并加载其 diff */
-  async function selectFile(path: string, staged: boolean): Promise<void> {
+  /** 选中某文件并加载其 diff。rename 文件需传 renamedFrom 才能让 git 识别 rename。 */
+  async function selectFile(path: string, staged: boolean, renamedFrom?: string): Promise<void> {
     selectedPath.value = path
     selectedStaged.value = staged
+    selectedRenamedFrom.value = renamedFrom
     await loadDiff()
   }
 
@@ -120,9 +171,14 @@ export const useGitStore = defineStore('git', () => {
     }
     loadingDiff.value = true
     try {
+      // rename 文件：传 [path, renamedFrom]，让 git 看到「删旧+加新」成对改动，
+      // 从而识别为 rename 并输出 rename from/to 形式 diff。
+      const fileArg = selectedRenamedFrom.value
+        ? [selectedPath.value, selectedRenamedFrom.value]
+        : selectedPath.value
       const res = await window.api.gitDiffFile(
         repoPath.value,
-        selectedPath.value,
+        fileArg,
         selectedStaged.value
       )
       diffText.value = res.ok ? res.data : ''
@@ -131,7 +187,12 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
-  /** 暂存 / 取消暂存后刷新 */
+  /**
+   * 暂存 / 取消暂存后刷新。
+   * 注意：刷新会触发 reconcileSelection 自动调整选中态——
+   * 例如选中 unstaged 条目点「+ 暂存」后，文件切到 staged 列表，
+   * selectedStaged 自动翻转为 true 并重载 staged diff，无需用户重新点选。
+   */
   async function stage(files_: string[]): Promise<void> {
     if (!repoPath.value) return
     const res = await window.api.gitAdd(repoPath.value, files_)
@@ -161,6 +222,7 @@ export const useGitStore = defineStore('git', () => {
     branch.value = null
     selectedPath.value = null
     selectedStaged.value = false
+    selectedRenamedFrom.value = undefined
     diffText.value = ''
     error.value = null
   }

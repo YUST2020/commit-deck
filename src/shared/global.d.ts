@@ -37,7 +37,7 @@ export interface AppApi {
   gitLog: (repoPath: string, maxCount?: number) => Promise<GResult<LogEntry[]>>
   gitBranch: (repoPath: string) => Promise<GResult<BranchInfo | null>>
   gitFetch: (repoPath: string) => Promise<GResult<null>>
-  gitDiffFile: (repoPath: string, file: string, staged: boolean) => Promise<GResult<string>>
+  gitDiffFile: (repoPath: string, file: string | string[], staged: boolean) => Promise<GResult<string>>
   gitDiffStaged: (repoPath: string) => Promise<GResult<string>>
   gitAdd: (repoPath: string, files: string[]) => Promise<GResult<null>>
   gitReset: (repoPath: string, files: string[]) => Promise<GResult<null>>
